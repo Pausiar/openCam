@@ -1,0 +1,11 @@
+target/
+**/target/
+.gradle/
+build/
+*.iml
+.idea/
+DerivedData/
+node_modules/
+dist/
+.DS_Store
+local.properties

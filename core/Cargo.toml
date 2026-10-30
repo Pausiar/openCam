@@ -1,0 +1,12 @@
+[package]
+name = "opencam-core"
+version = "0.1.0"
+edition = "2021"
+description = "Núcleo compartido de OpenCam: protocolo OPCM, cola de frames y métricas"
+license = "MIT"
+
+[dependencies]
+
+[lib]
+name = "opencam_core"
+path = "src/lib.rs"
