@@ -5,6 +5,7 @@
 
 pub mod frame_queue;
 pub mod protocol;
+pub mod shared_frame;
 
 pub use frame_queue::{Frame, FrameQueue};
 pub use protocol::{Header, MsgType, ProtoError, DEFAULT_PORT, FLAG_KEYFRAME, HEADER_LEN};

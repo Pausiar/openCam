@@ -2,6 +2,8 @@ mod client;
 mod decoder;
 #[cfg(target_os = "linux")]
 mod sink_linux;
+#[cfg(windows)]
+mod sink_windows;
 #[cfg(unix)]
 mod usbmuxd;
 
@@ -67,7 +69,12 @@ fn main() -> io::Result<()> {
 
     #[cfg(target_os = "linux")]
     let mut camera = sink_linux::VirtualCamera::open(device, 1920, 1080)?;
-    #[cfg(not(target_os = "linux"))]
+    #[cfg(windows)]
+    let mut camera = {
+        let _ = device;
+        sink_windows::VirtualCamera::open(1920, 1080)?
+    };
+    #[cfg(not(any(target_os = "linux", windows)))]
     {
         let _ = device;
         return Err(io::Error::other("la cámara virtual de este sistema aún no está implementada"));
@@ -83,9 +90,9 @@ fn main() -> io::Result<()> {
                 }
                 if let Some(frame) = decoder.next_rgb().map_err(|e| io::Error::other(e.to_string()))? {
                     let yuyv = rgb_to_yuyv(&frame.rgb, frame.width, frame.height);
-                    #[cfg(target_os = "linux")]
+                    #[cfg(any(target_os = "linux", windows))]
                     camera.write_yuyv(&yuyv)?;
-                    #[cfg(not(target_os = "linux"))]
+                    #[cfg(not(any(target_os = "linux", windows)))]
                     let _ = yuyv;
                 }
             }

@@ -1,0 +1,22 @@
+[package]
+name = "opencam-vcam"
+version = "0.1.0"
+edition = "2021"
+license = "MIT"
+description = "Filtro DirectShow (fuente de vídeo) de la cámara virtual de OpenCam para Windows"
+
+[lib]
+name = "opencam_vcam"
+crate-type = ["cdylib"]
+
+[dependencies]
+opencam-core = { path = "../../core" }
+windows = { version = "0.62.2", features = [
+    "Win32_Foundation",
+    "Win32_System_Com",
+    "Win32_System_Memory",
+    "Win32_System_LibraryLoader",
+    "Win32_Media",
+    "Win32_Media_DirectShow",
+    "Win32_Media_MediaFoundation",
+] }

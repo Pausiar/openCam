@@ -7,7 +7,7 @@ Cliente de escritorio: se conecta al móvil por el protocolo OPCM (ver `docs/PRO
 | Sistema | Cámara virtual | Estado |
 |---|---|---|
 | Linux | `v4l2loopback` (`/dev/videoN`) | Implementado. Compila; no probado con el módulo cargado en este entorno. |
-| Windows | MF Virtual Camera (Win11) / DirectShow (Win10) | Pendiente. |
+| Windows | Filtro DirectShow (`desktop/windows-vcam`) | Implementado. Sin compilar ni probar en Windows todavía. |
 
 ## Compilar y probar
 
@@ -16,6 +16,50 @@ cd desktop
 cargo build
 cargo test
 ```
+
+## Windows: cámara virtual DirectShow
+
+Dos piezas:
+
+- El cliente (`desktop/`) escribe cada frame YUY2 1920x1080 en la memoria compartida `Local\OpenCamVirtualCamera`. El formato está en `core/src/shared_frame.rs`.
+- El filtro (`desktop/windows-vcam/`, DLL `opencam_vcam.dll`) es una fuente de vídeo DirectShow que lee esa memoria y la entrega a las apps. Si no llega ningún frame nuevo, entrega negro. Reabre la memoria cada segundo, así que el cliente puede arrancar o reiniciarse después de la cámara.
+
+El filtro es un crate independiente: `cargo build` en `desktop/` no lo compila.
+
+### Compilar
+
+Con Rust (toolchain MSVC) en Windows:
+
+```powershell
+cd desktop\windows-vcam
+cargo build --release
+```
+
+La DLL queda en `desktop\windows-vcam\target\release\opencam_vcam.dll`.
+
+### Registrar y quitar (como administrador)
+
+```powershell
+regsvr32 "C:\ruta\a\opencam_vcam.dll"
+regsvr32 /u "C:\ruta\a\opencam_vcam.dll"
+```
+
+Las apps de 32 bits necesitan una DLL de 32 bits registrada con `C:\Windows\SysWOW64\regsvr32.exe`. El registro escribe en `HKCR\CLSID` y en la categoría de fuentes de vídeo (`{860BB310-5D01-11D0-BD3B-00A0C911CE86}`).
+
+Después, arranca el cliente y elige **OpenCam Virtual Camera** en la app que use la cámara:
+
+```powershell
+cargo run --release -- 127.0.0.1:4747
+```
+
+En Windows el segundo argumento (dispositivo) se ignora.
+
+### Limitaciones
+
+- Un único formato: YUY2 1920x1080 a 30 fps. No implementa `IAMStreamConfig` ni `FilterData`, así que no hay selector de resolución.
+- El pin no informa el filtro al que pertenece (`pFilter` nulo en `PIN_INFO`).
+- No es Media Foundation Virtual Camera; las apps que sólo listan cámaras con Media Foundation no la verán.
+- Sin compilar ni registrar en Windows todavía: el código no se ha probado.
 
 ## Linux: preparar la cámara virtual
 
