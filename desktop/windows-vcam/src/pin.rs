@@ -14,7 +14,7 @@ use windows::core::{implement, w, Interface, OutRef, Ref, GUID, HRESULT, PCWSTR,
 use windows::Win32::Foundation::{CloseHandle, E_NOTIMPL, E_OUTOFMEMORY, E_POINTER, E_UNEXPECTED, HANDLE, S_FALSE, S_OK};
 use windows::Win32::Media::DirectShow::{
     IEnumMediaTypes, IEnumMediaTypes_Impl, IMediaSample, IMemAllocator, IMemInputPin, IPin, IPin_Impl, PIN_DIRECTION,
-    PIN_INFO, PINDIR_OUTPUT,
+    ALLOCATOR_PROPERTIES, PIN_INFO, PINDIR_OUTPUT,
 };
 use windows::Win32::Media::MediaFoundation::AM_MEDIA_TYPE;
 use windows::Win32::System::Com::{CoTaskMemAlloc, CoTaskMemFree};
@@ -110,7 +110,10 @@ impl Shared {
 
     fn disconnect(&self) {
         *self.peer.lock().unwrap() = None;
-        *self.alloc.lock().unwrap() = None;
+        if let Some(alloc) = self.alloc.lock().unwrap().take() {
+            // SAFETY: allocator obtenido en Connect; se desactiva al desconectar.
+            unsafe { let _ = alloc.Decommit(); }
+        }
     }
 
     /// Arranca el hilo de entrega (una sola vez).
@@ -194,6 +197,14 @@ impl IPin_Impl for OutPin_Impl {
             let input: IMemInputPin = peer.cast()?;
             let alloc = input.GetAllocator()?;
             input.NotifyAllocator(&alloc, false)?;
+            // Sin SetProperties y Commit el asignador no entrega buffers (GetBuffer falla).
+            let req = ALLOCATOR_PROPERTIES { cBuffers: 4, cbBuffer: PIXEL_BYTES as i32, cbAlign: 1, cbPrefix: 0 };
+            let mut actual = ALLOCATOR_PROPERTIES { cBuffers: 0, cbBuffer: 0, cbAlign: 0, cbPrefix: 0 };
+            alloc.SetProperties(&req, &mut actual)?;
+            if (actual.cbBuffer as usize) < PIXEL_BYTES {
+                return Err(E_OUTOFMEMORY.into());
+            }
+            alloc.Commit()?;
             *self.shared.alloc.lock().unwrap() = Some(alloc);
         }
         *self.shared.peer.lock().unwrap() = Some(peer);

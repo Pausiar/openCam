@@ -22,7 +22,7 @@ cargo test
 Dos piezas:
 
 - El cliente (`desktop/`) escribe cada frame YUY2 1920x1080 en la memoria compartida `Local\OpenCamVirtualCamera`. El formato está en `core/src/shared_frame.rs`.
-- El filtro (`desktop/windows-vcam/`, DLL `opencam_vcam.dll`) es una fuente de vídeo DirectShow que lee esa memoria y la entrega a las apps. Si no llega ningún frame nuevo, entrega negro. Reabre la memoria cada segundo, así que el cliente puede arrancar o reiniciarse después de la cámara.
+- El filtro (`desktop/windows-vcam/`, DLL `opencam_vcam.dll`) es una fuente de vídeo DirectShow que lee esa memoria y la entrega a las apps. Si la memoria no existe (el cliente no está en marcha), entrega negro; si el cliente se detiene, repite el último frame. Reabre la memoria cada segundo, así que el cliente puede arrancar o reiniciarse después de la cámara.
 
 El filtro es un crate independiente: `cargo build` en `desktop/` no lo compila.
 
