@@ -9,3 +9,8 @@ node_modules/
 dist/
 .DS_Store
 local.properties
+# Firma de la APK: nunca se suben al repo
+android/keystore.properties
+android/keystore/
+*.jks
+*.p12
