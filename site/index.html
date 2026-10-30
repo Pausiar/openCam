@@ -1,0 +1,103 @@
+<!doctype html>
+<html lang="es">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>OpenCam: descargas</title>
+  <meta name="description" content="Descarga las apps compiladas de OpenCam: cliente de escritorio, cámara virtual de Windows y app de Android.">
+  <style>
+    :root { color-scheme: light dark; --fg: #1d1d1f; --muted: #6e6e73; --card: #f5f5f7; --accent: #0a6cff; }
+    @media (prefers-color-scheme: dark) { :root { --fg: #f5f5f7; --muted: #a1a1a6; --card: #1c1c1e; --accent: #4da3ff; } }
+    * { box-sizing: border-box; }
+    body { margin: 0; font-family: system-ui, -apple-system, "Segoe UI", sans-serif; color: var(--fg); background: transparent; line-height: 1.5; }
+    main { max-width: 880px; margin: 0 auto; padding: 48px 20px 64px; }
+    h1 { font-size: 2.4rem; margin: 0 0 8px; }
+    h2 { font-size: 1.25rem; margin: 0 0 6px; }
+    p { margin: 0 0 12px; }
+    .muted { color: var(--muted); }
+    .version { font-size: 0.95rem; color: var(--muted); margin-bottom: 28px; }
+    .grid { display: grid; gap: 16px; grid-template-columns: repeat(auto-fit, minmax(260px, 1fr)); }
+    .card { background: var(--card); border-radius: 14px; padding: 20px; display: flex; flex-direction: column; }
+    .card ul { padding-left: 18px; margin: 0 0 16px; color: var(--muted); font-size: 0.95rem; }
+    .btn { margin-top: auto; display: inline-block; text-align: center; text-decoration: none; background: var(--accent); color: #fff; padding: 10px 16px; border-radius: 10px; font-weight: 600; }
+    .btn.disabled { background: transparent; color: var(--muted); border: 1px solid var(--muted); pointer-events: none; }
+    footer { margin-top: 40px; font-size: 0.9rem; color: var(--muted); }
+    a { color: var(--accent); }
+  </style>
+</head>
+<body>
+  <main>
+    <h1>OpenCam</h1>
+    <p class="muted">Usa tu móvil como cámara web en tu ordenador.</p>
+    <p class="version" id="version">Cargando la última versión…</p>
+
+    <section class="grid">
+      <article class="card">
+        <h2>Escritorio · Linux</h2>
+        <ul>
+          <li>Cliente que recibe el vídeo del móvil.</li>
+          <li>Requiere el módulo <code>v4l2loopback</code> cargado.</li>
+        </ul>
+        <a class="btn" href="https://github.com/Pausiar/openCam/releases/latest/download/opencam-desktop-linux-x86_64">Descargar</a>
+      </article>
+
+      <article class="card">
+        <h2>Escritorio · Windows</h2>
+        <ul>
+          <li>Cliente de escritorio para Windows (64 bits).</li>
+          <li>Necesita también la cámara virtual de abajo.</li>
+        </ul>
+        <a class="btn" href="https://github.com/Pausiar/openCam/releases/latest/download/opencam-desktop-windows-x86_64.exe">Descargar</a>
+      </article>
+
+      <article class="card">
+        <h2>Cámara virtual · Windows</h2>
+        <ul>
+          <li>Filtro DirectShow (<code>opencam_vcam.dll</code>), 64 bits.</li>
+          <li>Se registra como administrador con <code>regsvr32</code>. Ver el README del proyecto.</li>
+        </ul>
+        <a class="btn" href="https://github.com/Pausiar/openCam/releases/latest/download/opencam-vcam-windows-x86_64.dll">Descargar</a>
+      </article>
+
+      <article class="card">
+        <h2>Android</h2>
+        <ul>
+          <li>APK de depuración, instalable directamente.</li>
+          <li>Hay que permitir la instalación desde fuentes desconocidas.</li>
+        </ul>
+        <a class="btn" href="https://github.com/Pausiar/openCam/releases/latest/download/opencam-android.apk">Descargar</a>
+      </article>
+
+      <article class="card">
+        <h2>iPhone</h2>
+        <ul>
+          <li>La app de iOS todavía no tiene una descarga: compilarla requiere macOS y una firma de Apple.</li>
+        </ul>
+        <span class="btn disabled">No disponible</span>
+      </article>
+    </section>
+
+    <footer>
+      <p>Código fuente y notas de instalación en <a href="https://github.com/Pausiar/openCam">GitHub</a>.
+      Todas las descargas salen de la <a href="https://github.com/Pausiar/openCam/releases">última release</a>.</p>
+    </footer>
+  </main>
+
+  <script>
+    // Muestra la versión y fecha de la última release. Si la API no responde,
+    // el texto de carga se queda como está; los enlaces siguen funcionando.
+    (async () => {
+      const el = document.getElementById('version');
+      try {
+        const res = await fetch('https://api.github.com/repos/Pausiar/openCam/releases/latest', { headers: { Accept: 'application/vnd.github+json' } });
+        if (!res.ok) throw new Error(res.status);
+        const rel = await res.json();
+        const fecha = new Date(rel.published_at).toLocaleDateString('es-ES', { year: 'numeric', month: 'long', day: 'numeric' });
+        el.textContent = `Versión ${rel.tag_name} · publicada el ${fecha}`;
+      } catch {
+        el.textContent = 'Consulta la última release en GitHub.';
+      }
+    })();
+  </script>
+</body>
+</html>
