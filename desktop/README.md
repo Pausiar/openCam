@@ -31,3 +31,11 @@ cargo run -- 127.0.0.1:4747 /dev/video10
 ```
 
 El primer argumento es la dirección del móvil y el segundo, el dispositivo de salida.
+
+### iPhone por USB (macOS/Linux)
+
+Requiere usbmuxd (en macOS viene con el sistema) y la app iOS en primer plano. No necesita `adb`:
+
+```bash
+cargo run -- iphone /dev/video10
+```

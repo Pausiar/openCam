@@ -4,6 +4,8 @@
 
 use std::io::{self, Read, Write};
 use std::net::{TcpStream, ToSocketAddrs};
+#[cfg(unix)]
+use std::os::unix::net::UnixStream;
 use std::time::{Duration, Instant};
 
 use opencam_core::protocol::{Header, MsgType, HEADER_LEN};
@@ -17,7 +19,7 @@ pub struct Message {
 
 /// Conexión OPCM ya establecida con el móvil.
 pub struct Client {
-    stream: TcpStream,
+    stream: Box<dyn Stream>,
     seq: u32,
     epoch: Instant,
 }
@@ -27,7 +29,12 @@ impl Client {
         let addr = addr.to_socket_addrs()?.next().ok_or_else(|| io::Error::other("dirección no válida"))?;
         let stream = TcpStream::connect_timeout(&addr, timeout)?;
         stream.set_nodelay(true)?;
-        Ok(Self { stream, seq: 0, epoch: Instant::now() })
+        Ok(Self { stream: Box::new(stream), seq: 0, epoch: Instant::now() })
+    }
+
+    /// Envuelve un stream ya abierto (p. ej. túnel de usbmuxd).
+    pub fn from_stream(stream: Box<dyn Stream>) -> Self {
+        Self { stream, seq: 0, epoch: Instant::now() }
     }
 
     /// Microsegundos desde el arranque del cliente; son el `timestamp_us` de los PING.
@@ -65,8 +72,26 @@ impl Client {
     }
 
     /// Clona el socket para enviar PING desde otro hilo sin bloquear la lectura.
-    pub fn try_clone_stream(&self) -> io::Result<TcpStream> {
-        self.stream.try_clone()
+    pub fn try_clone_stream(&self) -> io::Result<Box<dyn Stream>> {
+        self.stream.try_clone_boxed()
+    }
+}
+
+/// Stream bidireccional con clonación, común a TCP (Android, Wi-Fi) y Unix (túnel usbmuxd).
+pub trait Stream: Read + Write + Send {
+    fn try_clone_boxed(&self) -> io::Result<Box<dyn Stream>>;
+}
+
+impl Stream for TcpStream {
+    fn try_clone_boxed(&self) -> io::Result<Box<dyn Stream>> {
+        Ok(Box::new(self.try_clone()?))
+    }
+}
+
+#[cfg(unix)]
+impl Stream for UnixStream {
+    fn try_clone_boxed(&self) -> io::Result<Box<dyn Stream>> {
+        Ok(Box::new(self.try_clone()?))
     }
 }
 

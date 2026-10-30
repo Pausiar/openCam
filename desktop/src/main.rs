@@ -2,6 +2,8 @@ mod client;
 mod decoder;
 #[cfg(target_os = "linux")]
 mod sink_linux;
+#[cfg(unix)]
+mod usbmuxd;
 
 use std::env;
 use std::io;
@@ -14,13 +16,27 @@ const DEFAULT_CONFIG: &str =
     r#"{"codec":"h264","width":1920,"height":1080,"fps":30,"bitrate_kbps":8000,"lens":"wide"}"#;
 
 fn main() -> io::Result<()> {
-    // Uso: opencam-desktop <host:puerto> <dispositivo_v4l2>
-    // Por USB: adb forward tcp:4747 tcp:4747, y host 127.0.0.1:4747.
+    // Uso: opencam-desktop <host:puerto|iphone> <dispositivo_v4l2>
+    // Android por USB: adb forward tcp:4747 tcp:4747, y host 127.0.0.1:4747.
+    // iPhone por USB (macOS/Linux con usbmuxd): usar el argumento `iphone`.
     let args: Vec<String> = env::args().collect();
     let addr = args.get(1).map(String::as_str).unwrap_or("127.0.0.1:4747");
     let device = args.get(2).map(String::as_str).unwrap_or("/dev/video0");
 
-    let mut client = client::Client::connect(addr, Duration::from_secs(5))?;
+    #[cfg(unix)]
+    let iphone = addr == "iphone";
+    #[cfg(not(unix))]
+    let iphone = false;
+    let mut client = if iphone {
+        #[cfg(unix)]
+        {
+            client::Client::from_stream(Box::new(usbmuxd::connect_iphone(4747)?))
+        }
+        #[cfg(not(unix))]
+        unreachable!()
+    } else {
+        client::Client::connect(addr, Duration::from_secs(5))?
+    };
     let caps = client::handshake(&mut client, DEFAULT_CONFIG)?;
     println!("Conectado a {addr}. CAPS: {caps}");
 
