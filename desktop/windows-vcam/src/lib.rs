@@ -130,7 +130,8 @@ impl IClassFactory_Impl for Factory_Impl {
             return Err(E_POINTER.into());
         }
         let unk: IUnknown = filter::Filter::new().into();
-        unk.query(riid, ppvobject).ok()
+        // SAFETY: `ppvobject` se comprobó no nulo arriba y COM exige que apunte a memoria válida.
+        unsafe { unk.query(riid, ppvobject) }.ok()
     }
 
     fn LockServer(&self, flock: BOOL) -> windows::core::Result<()> {

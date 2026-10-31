@@ -199,8 +199,7 @@ impl IPin_Impl for OutPin_Impl {
             input.NotifyAllocator(&alloc, false)?;
             // Sin SetProperties y Commit el asignador no entrega buffers (GetBuffer falla).
             let req = ALLOCATOR_PROPERTIES { cBuffers: 4, cbBuffer: PIXEL_BYTES as i32, cbAlign: 1, cbPrefix: 0 };
-            let mut actual = ALLOCATOR_PROPERTIES { cBuffers: 0, cbBuffer: 0, cbAlign: 0, cbPrefix: 0 };
-            alloc.SetProperties(&req, &mut actual)?;
+            let actual = alloc.SetProperties(&req)?;
             if (actual.cbBuffer as usize) < PIXEL_BYTES {
                 return Err(E_OUTOFMEMORY.into());
             }
