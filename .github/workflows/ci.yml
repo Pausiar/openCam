@@ -1,0 +1,60 @@
+name: CI
+
+# Comprueba que el repo compila en cada push a main y en los PR, sin publicar
+# nada y sin necesitar secretos (la APK de debug no se firma).
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  rust:
+    name: Rust (core y escritorio)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: |
+            core -> target
+            desktop -> target
+            desktop/windows-vcam -> target
+      - name: Tests del núcleo
+        working-directory: core
+        shell: bash
+        run: cargo test --locked
+      - name: Compilar cliente de escritorio (Linux)
+        working-directory: desktop
+        shell: bash
+        run: cargo build --locked
+      - name: Type-check del filtro DirectShow
+        # Target Windows: valida el código de la cámara virtual sin compilar C.
+        shell: bash
+        run: |
+          rustup target add x86_64-pc-windows-gnu
+          cd desktop/windows-vcam
+          cargo check --target x86_64-pc-windows-gnu --locked
+
+  android:
+    name: Android (APK de debug)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "17"
+      - uses: gradle/actions/setup-gradle@v4
+      - name: Compilar APK de debug
+        working-directory: android
+        shell: bash
+        run: ./gradlew :app:assembleDebug --no-daemon

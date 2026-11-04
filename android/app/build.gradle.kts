@@ -8,6 +8,10 @@ plugins {
 // Firma de release: android/keystore.properties (local o generado en CI desde secretos).
 val keystoreProps = rootProject.file("keystore.properties")
 
+// Versión de la app: CI pasa -PappVersionName=<tag> -PappVersionCode=<run>.
+val appVersionName = (findProperty("appVersionName") as String?) ?: "0.1.0"
+val appVersionCode = (findProperty("appVersionCode") as String?)?.toIntOrNull() ?: 1
+
 android {
     namespace = "dev.opencam.app"
     compileSdk = 35
@@ -16,8 +20,8 @@ android {
         applicationId = "dev.opencam.app"
         minSdk = 26
         targetSdk = 35
-        versionCode = 1
-        versionName = "0.1.0"
+        versionCode = appVersionCode
+        versionName = appVersionName
     }
 
     if (keystoreProps.exists()) {

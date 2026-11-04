@@ -10,6 +10,10 @@ on:
 permissions:
   contents: read
 
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false
+
 jobs:
   linux-desktop:
     name: Cliente de escritorio (Linux)
@@ -67,7 +71,7 @@ jobs:
       - name: Compilar
         working-directory: desktop/windows-vcam
         shell: bash
-        run: cargo build --release
+        run: cargo build --release --locked
       - name: Preparar artefacto
         shell: bash
         run: cp desktop/windows-vcam/target/release/opencam_vcam.dll opencam-vcam-windows-x86_64.dll
@@ -109,9 +113,6 @@ jobs:
         with:
           distribution: temurin
           java-version: "17"
-      - uses: gradle/actions/setup-gradle@v4
-        with:
-          gradle-version: "8.10.2"
       # La keystore vive en secretos de GitHub (base64 del .p12 y contraseñas).
       - name: Preparar firma
         shell: bash
@@ -131,7 +132,16 @@ jobs:
       - name: Compilar APK firmada
         working-directory: android
         shell: bash
-        run: gradle :app:assembleRelease --no-daemon
+        run: |
+          # En un tag la versión es el propio tag (v0.1.2 -> 0.1.2); a mano, la de por defecto.
+          if [[ "$GITHUB_REF" == refs/tags/v* ]]; then
+            VERSION="${GITHUB_REF_NAME#v}"
+          else
+            VERSION="0.1.0"
+          fi
+          ./gradlew :app:assembleRelease --no-daemon \
+            -PappVersionName="$VERSION" \
+            -PappVersionCode="${{ github.run_number }}"
       - name: Preparar artefacto
         shell: bash
         run: cp android/app/build/outputs/apk/release/app-release.apk opencam-android.apk

@@ -11,6 +11,9 @@ crate-type = ["cdylib"]
 
 [dependencies]
 opencam-core = { path = "../../core" }
+# El macro `#[implement]` de `windows` expande rutas a `::windows_core`, así que
+# el crate tiene que ser dependencia directa (misma versión que usa `windows`).
+windows-core = "0.62.2"
 windows = { version = "0.62.2", features = [
     "Win32_Foundation",
     "Win32_System_Com",

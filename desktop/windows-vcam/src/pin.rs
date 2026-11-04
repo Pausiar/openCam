@@ -11,6 +11,8 @@ use std::time::{Duration, Instant};
 
 use opencam_core::shared_frame::{self, HEADER_LEN};
 use windows::core::{implement, w, Interface, OutRef, Ref, GUID, HRESULT, PCWSTR, PWSTR};
+// `IUnknownImpl` (de `windows-core`) aporta `to_interface` a los tipos generados por `#[implement]`.
+use windows_core::IUnknownImpl;
 use windows::Win32::Foundation::{CloseHandle, E_NOTIMPL, E_OUTOFMEMORY, E_POINTER, E_UNEXPECTED, HANDLE, S_FALSE, S_OK};
 use windows::Win32::Media::DirectShow::{
     IEnumMediaTypes, IEnumMediaTypes_Impl, IMediaSample, IMemAllocator, IMemInputPin, IPin, IPin_Impl, PIN_DIRECTION,

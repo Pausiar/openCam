@@ -7,7 +7,7 @@ Cliente de escritorio: se conecta al móvil por el protocolo OPCM (ver `docs/PRO
 | Sistema | Cámara virtual | Estado |
 |---|---|---|
 | Linux | `v4l2loopback` (`/dev/videoN`) | Implementado. Compila; no probado con el módulo cargado en este entorno. |
-| Windows | Filtro DirectShow (`desktop/windows-vcam`) | Implementado. Sin compilar ni probar en Windows todavía. |
+| Windows | Filtro DirectShow (`desktop/windows-vcam`) | Implementado. Compila para Windows (verificado con `cargo check --target x86_64-pc-windows-gnu` y en CI); sin probar en ejecución. |
 
 ## Compilar y probar
 
