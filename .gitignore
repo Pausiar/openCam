@@ -7,6 +7,9 @@ build/
 DerivedData/
 node_modules/
 dist/
+# Piezas y salida del instalador de Windows (las genera el workflow)
+desktop/windows-installer/payload/
+desktop/windows-installer/opencam-setup-windows-x86_64.exe
 .DS_Store
 local.properties
 # Firma de la APK: nunca se suben al repo

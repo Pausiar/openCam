@@ -58,3 +58,24 @@ jobs:
         working-directory: android
         shell: bash
         run: ./gradlew :app:assembleDebug --no-daemon
+
+  installer:
+    name: Instalador de Windows (sintaxis)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Instalar NSIS
+        shell: bash
+        run: sudo apt-get update -qq && sudo apt-get install -y -qq nsis
+      - name: Compilar con piezas de mentira
+        # Sólo comprueba que el script NSIS es válido; los binarios reales los
+        # pone el workflow de release antes de compilarlo.
+        working-directory: desktop/windows-installer
+        shell: bash
+        run: |
+          mkdir -p payload
+          printf 'MZ' > payload/opencam-desktop.exe
+          printf 'MZ' > payload/opencam_vcam.dll
+          makensis -DVERSION=0.0.0-test -DOUTDIR=. opencam.nsi
+          test -f opencam-setup-windows-x86_64.exe
+

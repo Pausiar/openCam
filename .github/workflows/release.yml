@@ -81,6 +81,46 @@ jobs:
           path: opencam-vcam-windows-x86_64.dll
           if-no-files-found: error
 
+  windows-installer:
+    name: Instalador (Windows)
+    needs: [windows-desktop, windows-vcam]
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      # El instalador empaqueta las dos piezas ya compiladas.
+      - uses: actions/download-artifact@v4
+        with:
+          name: opencam-desktop-windows-x86_64
+          path: desktop/windows-installer/payload
+      - uses: actions/download-artifact@v4
+        with:
+          name: opencam-vcam-windows-x86_64
+          path: desktop/windows-installer/payload
+      - name: Renombrar las piezas
+        working-directory: desktop/windows-installer/payload
+        shell: bash
+        run: |
+          mv opencam-desktop-windows-x86_64.exe opencam-desktop.exe
+          mv opencam-vcam-windows-x86_64.dll opencam_vcam.dll
+      - name: Instalar NSIS
+        shell: pwsh
+        run: choco install nsis --no-progress -y
+      - name: Compilar el instalador
+        working-directory: desktop/windows-installer
+        shell: pwsh
+        run: |
+          $makensis = "${env:ProgramFiles(x86)}\NSIS\makensis.exe"
+          if (-not (Test-Path $makensis)) { $makensis = "makensis" }
+          # En un tag la versión es el propio tag (v0.1.2 -> 0.1.2).
+          if ($env:GITHUB_REF -like 'refs/tags/v*') { $v = $env:GITHUB_REF_NAME.Substring(1) } else { $v = "0.1.0" }
+          & $makensis "/DVERSION=$v" "/DOUTDIR=$PWD" opencam.nsi
+          exit $LASTEXITCODE
+      - uses: actions/upload-artifact@v4
+        with:
+          name: opencam-setup-windows-x86_64
+          path: desktop/windows-installer/opencam-setup-windows-x86_64.exe
+          if-no-files-found: error
+
   macos-desktop:
     name: Cliente de escritorio (macOS)
     # Runner Apple Silicon: el binario es arm64 (no corre en Macs Intel).
@@ -154,7 +194,7 @@ jobs:
   release:
     name: Publicar release
     if: startsWith(github.ref, 'refs/tags/v')
-    needs: [linux-desktop, windows-desktop, windows-vcam, macos-desktop, android]
+    needs: [linux-desktop, windows-desktop, windows-vcam, windows-installer, macos-desktop, android]
     runs-on: ubuntu-latest
     permissions:
       contents: write

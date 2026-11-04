@@ -26,6 +26,17 @@ Dos piezas:
 
 El filtro es un crate independiente: `cargo build` en `desktop/` no lo compila.
 
+### Instalador (lo recomendado)
+
+El workflow de release genera `opencam-setup-windows-x86_64.exe` con NSIS (script en `desktop/windows-installer/`). Copia el cliente y la DLL en `C:\Program Files\OpenCam`, registra la cámara virtual y deja accesos directos; al desinstalar, la desregistra.
+
+Para compilarlo a mano, con las dos piezas dentro de `payload\`:
+
+```powershell
+cd desktop\windows-installer
+makensis /DVERSION=0.1.2 opencam.nsi
+```
+
 ### Compilar
 
 Con Rust (toolchain MSVC) en Windows:
