@@ -8,7 +8,7 @@ Cliente de escritorio: se conecta al móvil por el protocolo OPCM (ver `docs/PRO
 |---|---|---|
 | Linux | `v4l2loopback` (`/dev/videoN`) | Implementado. Compila; no probado con el módulo cargado en este entorno. |
 | Windows | Filtro DirectShow (`desktop/windows-vcam`) | Implementado: YUY2 a 30 fps en 1920x1080, 1280x720 y 640x480 (`IAMStreamConfig`). Compila para Windows en CI; sin probar en ejecución. |
-| macOS | Ninguna | Sin cámara virtual. El binario se compila en CI, pero hoy termina con error al arrancar. Ver la sección macOS. |
+| macOS | Ninguna | Sin cámara virtual. Salida Y4M por stdout o archivo (`--sink y4m`, por defecto). El binario se compila en CI. Ver la sección macOS. |
 
 ## Compilar y probar
 
@@ -74,8 +74,8 @@ En Windows `--device` se ignora.
 
 ## macOS
 
-- Sin cámara virtual. El binario arm64 se compila en CI (job `macos-desktop`), pero hoy termina con error al arrancar, antes de conectar con el móvil: `la cámara virtual de este sistema aún no está implementada`.
-- `desktop/src/sink.rs` tiene un sink Y4M (YUV4MPEG2 4:2:2, a archivo o a stdout) con tests. Falta conectarlo a `main.rs` para que macOS tenga salida.
+- Sin cámara virtual. El binario arm64 se compila en CI (job `macos-desktop`).
+- Salida Y4M (YUV4MPEG2 4:2:2) a archivo o stdout, conectada a la CLI y por defecto en macOS. Por ejemplo: `cargo run --release -- 127.0.0.1:4747 --output - | ffplay -`.
 - Pendiente: una cámara virtual para macOS.
 
 ## Linux: preparar la cámara virtual

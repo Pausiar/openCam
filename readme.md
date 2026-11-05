@@ -12,7 +12,7 @@ El proyecto está en desarrollo. Lo que sigue dice qué está probado de verdad 
 | iPhone (móvil) | App Swift con AVFoundation y VideoToolbox. Transporte USB (usbmuxd) y Wi-Fi con Bonjour. | Proyecto XcodeGen revisado. No compilado: el entorno de desarrollo no tiene Xcode. |
 | Linux (escritorio) | Cliente Rust que publica en `/dev/videoN` con v4l2loopback. | Compila y tiene tests. Sin probar con el módulo cargado. |
 | Windows (escritorio) | Cliente Rust, filtro DirectShow (`opencam_vcam.dll`) e instalador NSIS. | Compila en CI. Sin ejecutar ni registrar en Windows. |
-| macOS (escritorio) | Cliente Rust sin cámara virtual. | Compila en CI. Hoy el binario termina con error al arrancar: la salida Y4M existe pero no está conectada. |
+| macOS (escritorio) | Cliente Rust sin cámara virtual. | Compila en CI. Sale a Y4M por archivo o stdout (`--sink y4m`, por defecto en macOS); sin cámara virtual real. |
 
 Detalles de cada pieza y de lo que falta: [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md), [`desktop/README.md`](desktop/README.md) e [`ios/README.md`](ios/README.md).
 

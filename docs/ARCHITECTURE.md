@@ -60,7 +60,7 @@ Valores objetivo del diseño. El cliente pide H.264 a 1080p30 y 8000 kbps por de
 | Wi-Fi 5 GHz | 4K30 | H.265 | 15-20 Mbps (pendiente) |
 | Bluetooth Android | 720p15-24 | H.264 | 1-2 Mbps (Fase 4) |
 
-El móvil ajusta el bitrate según la pérdida y el RTT que reporta el escritorio, con STATS. El móvil ya aplica STATS; el escritorio todavía no lo envía (ver estado).
+El móvil ajusta el bitrate según la pérdida y el RTT que reporta el escritorio, con STATS. El escritorio envía STATS cada segundo y el móvil lo aplica (ver estado).
 
 ## Estado
 
@@ -76,18 +76,18 @@ Leyenda:
 | Función | Estado | Detalle |
 |---|---|---|
 | Protocolo OPCM v1 | Hecho | `core/`: 29 tests pasan. Cabecera, tipos de mensaje, HELLO/CAPS, CONFIG, STATS, PING/PONG. |
-| STATS y control de bitrate | Parcial | `core/`: métricas EWMA y controlador AIMD con tests. Móviles: aplican STATS recibido (Android `setBitrate`, iOS `AverageBitRate`). Escritorio: no mide ni envía STATS. |
+| STATS y control de bitrate | Hecho | `core/`: métricas EWMA y controlador AIMD con tests. Escritorio: mide RTT, descartes y fps, y envía STATS cada segundo con `target_bitrate_kbps`; test end-to-end con móvil falso. Móviles: aplican STATS (Android `setBitrate`, iOS `AverageBitRate`). Sin verificar en dispositivos reales. |
 | Reconexión | Hecho (escritorio) | `desktop/src/session.rs` reconecta con backoff y repite el handshake; test automático. Sin probar con un móvil real. `core/src/reconnect.rs` existe pero el cliente aún usa su backoff local. |
-| Descubrimiento mDNS / NSD / Bonjour | Parcial | Android anuncia con NSD y iOS con Bonjour (`_opencam._tcp`). El escritorio tiene `discovery.rs`, pero `main.rs` no lo declara, así que no se compila ni se usa. |
+| Descubrimiento mDNS / NSD / Bonjour | Hecho (escritorio) | Android anuncia con NSD y iOS con Bonjour (`_opencam._tcp`). Escritorio: `discovery.rs` con `--list` y `--discover`. Sin probar con teléfonos reales. |
 | CAPS reales en Android | No verificado | `Caps.kt` (rangos de fps, lente) con tests JVM. Sin móvil. |
 | Cola de envío y robustez Android | No verificado | `StreamService.kt` y `OpcmServer.kt`; tests JVM en `OpcmTest.kt`. |
 | Proyecto XcodeGen iOS | No verificado | `ios/project.yml`. Sin Xcode: no se ha generado ni compilado. |
 | Captura iOS con presets 3840 / 1920 / 1280 | No verificado | `CameraStreamer.swift`. H.264 solo. |
-| Salida Y4M (archivo o stdout) | Parcial | `desktop/src/sink.rs` con tests. No está conectada a la CLI, así que macOS no tiene salida. |
+| Salida Y4M (archivo o stdout) | Hecho (escritorio) | `desktop/src/sink.rs` con tests, conectado a la CLI (`--sink y4m`, `--output`; por defecto en macOS). No es cámara virtual. |
 | Cámara virtual Linux (v4l2loopback) | No verificado | Compila. Sin probar con el módulo cargado. |
 | Cámara virtual Windows (DirectShow) | No verificado | Memoria compartida (`sink_windows.rs`, `shared_frame`) y filtro (`windows-vcam/`). `IAMStreamConfig` e `IKsPropertySet` implementados en `pin.rs`, con 1080p, 720p y 480p. CI compila la DLL. Sin registrar ni ejecutar. |
 | Instalador Windows | No verificado | `desktop/windows-installer/opencam.nsi`. CI valida la sintaxis con binarios de prueba. |
-| Cámara virtual macOS | Pendiente | El binario compila, pero termina con error al arrancar. |
+| Cámara virtual macOS | Pendiente | Sin cámara virtual. Hay salida Y4M por stdout o archivo. |
 | H.265 y 4K en escritorio | Pendiente | Trabajo futuro. El escritorio solo decodifica H.264 con OpenH264. |
 | Audio y micrófono virtual | Pendiente | Fase 3. |
 | Bluetooth Android | Pendiente | Fase 4. |
@@ -98,7 +98,7 @@ Leyenda:
 1. **MVP** (Android + Windows, 1080p por USB, cámara virtual): **Parcial**. El código de ambos lados existe y el escritorio tiene tests. Falta probarlo en hardware real.
 2. **iPhone por USB, macOS y Linux**: **Parcial**. Linux tiene el cliente; el camino iPhone por usbmuxd está en el cliente y en la app iOS sin compilar; macOS espera la cámara virtual.
 3. **4K, H.265, controles avanzados, audio y micrófono virtual**: **Pendiente**.
-4. **Wi-Fi con descubrimiento, Bluetooth Android, ajustes avanzados**: **Parcial**. Wi-Fi TCP está en el cliente; el descubrimiento del escritorio no está enlazado. Bluetooth está pendiente.
+4. **Wi-Fi con descubrimiento, Bluetooth Android, ajustes avanzados**: **Parcial**. Wi-Fi TCP y el descubrimiento mDNS están en el cliente. Bluetooth está pendiente.
 
 ## Estructura del monorepo
 
