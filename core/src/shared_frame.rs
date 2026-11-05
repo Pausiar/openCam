@@ -28,7 +28,7 @@ pub fn region_len(width: u32, height: u32) -> usize {
 /// `seq` como atómico sobre la propia región; `None` si no hay cabecera o no está alineada.
 fn seq_atomic(region: &[u8]) -> Option<&AtomicU32> {
     let p = region.get(SEQ_OFFSET..SEQ_OFFSET + 4)?.as_ptr();
-    if p as usize % 4 != 0 {
+    if !(p as usize).is_multiple_of(4) {
         return None;
     }
     // SAFETY: `p` está alineado, dentro de `region` y vivo mientras dure el préstamo; todo acceso
@@ -45,7 +45,7 @@ pub fn write_frame(region: &mut [u8], width: u32, height: u32, seq: u32, yuyv: &
     }
     region[0..4].copy_from_slice(&MAGIC);
     let base = region.as_mut_ptr();
-    if base as usize % 4 != 0 {
+    if !(base as usize).is_multiple_of(4) {
         return false;
     }
     // SAFETY: `base + 12` está alineado y dentro de `region`; los accesos a esos bytes son atómicos.
