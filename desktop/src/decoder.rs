@@ -4,14 +4,12 @@
 //! hasta el primer keyframe y limita la cola para mantener la latencia baja.
 
 use openh264::decoder::Decoder;
-use openh264::formats::YUVSource;
 use opencam_core::{Frame, FrameQueue};
 
 use crate::convert::{self, ConvertError};
 
 /// Error de `next_yuyv`: fallo del decodificador o tamaño de salida inválido.
 #[derive(Debug)]
-#[allow(dead_code)] // lo cablea main.rs en otra rama
 pub enum DecodeError {
     Decode(openh264::Error),
     Convert(ConvertError),
@@ -34,13 +32,6 @@ pub struct VideoDecoder {
     seq: u32,
 }
 
-/// Imagen decodificada en RGB8, lista para el sink de cámara virtual.
-pub struct RgbFrame {
-    pub width: usize,
-    pub height: usize,
-    pub rgb: Vec<u8>,
-}
-
 impl VideoDecoder {
     pub fn new(queue_capacity: usize) -> Result<Self, openh264::Error> {
         let decoder = Decoder::new()?;
@@ -53,23 +44,8 @@ impl VideoDecoder {
         self.queue.push(Frame { seq: self.seq, timestamp_us, keyframe, data })
     }
 
-    /// Decodifica el frame más reciente disponible. Devuelve `Ok(None)` si no hay nada.
-    pub fn next_rgb(&mut self) -> Result<Option<RgbFrame>, openh264::Error> {
-        let Some(frame) = self.queue.pop() else {
-            return Ok(None);
-        };
-        let Some(yuv) = self.decoder.decode(&frame.data)? else {
-            return Ok(None);
-        };
-        let (width, height) = yuv.dimensions();
-        let mut rgb = vec![0u8; width * height * 3];
-        yuv.write_rgb8(&mut rgb);
-        Ok(Some(RgbFrame { width, height, rgb }))
-    }
-
-    /// Como `next_rgb`, pero devuelve YUYV de `out_w` x `out_h` (escalado con letterbox).
-    #[allow(dead_code)] // lo cablea main.rs en otra rama
-    pub fn next_yuyv(&mut self, out_w: usize, out_h: usize) -> Result<Option<Vec<u8>>, DecodeError> {
+    /// Decodifica el frame más reciente y lo devuelve como YUYV de `out_w` x `out_h` (escalado con letterbox); `Ok(None)` si no hay nada.
+        pub fn next_yuyv(&mut self, out_w: usize, out_h: usize) -> Result<Option<Vec<u8>>, DecodeError> {
         let Some(frame) = self.queue.pop() else {
             return Ok(None);
         };

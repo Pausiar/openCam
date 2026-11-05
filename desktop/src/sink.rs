@@ -1,5 +1,4 @@
 //! Interfaz común de los sinks de vídeo y un sink Y4M (archivo/stdout) para macOS y tests.
-#![allow(dead_code)] // lo cablea main.rs en otra rama
 
 use std::fs::File;
 use std::io::{self, Write};

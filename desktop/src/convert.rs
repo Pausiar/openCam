@@ -1,5 +1,4 @@
 //! Conversión directa I420 -> YUYV con escalado (vecino más cercano) y letterbox negro.
-#![allow(dead_code)] // lo cablea main.rs en otra rama
 
 use openh264::formats::YUVSource;
 

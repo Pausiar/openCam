@@ -1,7 +1,5 @@
 //! Descubrimiento mDNS de teléfonos OpenCam (`_opencam._tcp`, puerto 4747).
 //! TXT: `platform=android|ios`, `name=<dispositivo>`.
-//! Enlazar con `mod discovery;` en main.rs.
-#![allow(dead_code)]
 
 use std::io;
 use std::time::{Duration, Instant};

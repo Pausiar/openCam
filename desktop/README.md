@@ -81,15 +81,15 @@ sudo modprobe v4l2loopback video_nr=10 card_label="OpenCam" exclusive_caps=1
 
 ```bash
 adb forward tcp:4747 tcp:4747
-cargo run -- 127.0.0.1:4747 /dev/video10
+cargo run -- 127.0.0.1:4747 --device /dev/video10
 ```
 
-El primer argumento es la dirección del móvil y el segundo, el dispositivo de salida.
+El argumento es la dirección del móvil; `--device` el v4l2loopback. Opciones: `--sink v4l2|windows|y4m` (y4m por defecto en macOS, con `--output archivo` o `-` para stdout), `--list` y `--discover` (mDNS), `--udid` (iPhone USB), `--width/--height/--fps/--bitrate`, `--no-reconnect`; ver `--help`. El escritorio envía STATS cada segundo y solo decodifica H.264.
 
 ### iPhone por USB (macOS/Linux)
 
 Requiere usbmuxd (en macOS viene con el sistema) y la app iOS en primer plano. No necesita `adb`:
 
 ```bash
-cargo run -- iphone /dev/video10
+cargo run -- iphone --device /dev/video10
 ```

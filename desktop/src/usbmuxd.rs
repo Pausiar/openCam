@@ -40,19 +40,12 @@ pub struct Device {
     pub udid: String,
 }
 
-/// Socket conectado al puerto `device_port` del primer iPhone USB encontrado.
-pub fn connect_iphone(device_port: u16) -> io::Result<UnixStream> {
-    connect_iphone_with(device_port, None)
-}
-
-/// Como [`connect_iphone`], pero eligiendo el dispositivo por UDID/serie si se indica.
-#[allow(dead_code)]
+/// Socket conectado al puerto `device_port` del iPhone USB con ese UDID/serie (o el primero).
 pub fn connect_iphone_with(device_port: u16, udid: Option<&str>) -> io::Result<UnixStream> {
     connect_at(&socket_path()?, device_port, udid)
 }
 
 /// Lista los dispositivos iOS conectados por USB.
-#[allow(dead_code)]
 pub fn devices() -> io::Result<Vec<Device>> {
     list_devices(&socket_path()?)
 }

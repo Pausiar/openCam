@@ -18,9 +18,33 @@ OPCIONES:
     --height <px>      alto [1080]
     --fps <n>          fotogramas por segundo [30]
     --bitrate <kbps>   tasa de bits [8000]
+    --sink <tipo>      v4l2 (Linux), windows o y4m [v4l2 en Linux, windows en Windows, y4m en macOS]
+    --output <ruta>    archivo de salida de --sink y4m; `-` es stdout [-]
+    --list             lista teléfonos (mDNS) e iPhones USB y sale
+    --discover         conecta al primer teléfono hallado por mDNS
+    --udid <udid>      elige el iPhone USB por UDID (con `iphone`)
     --no-reconnect     salir al perder la conexión en vez de reconectar
     -h, --help         muestra esta ayuda
 ";
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum SinkKind {
+    V4l2,
+    Windows,
+    Y4m,
+}
+
+impl SinkKind {
+    fn default_for_os() -> Self {
+        if cfg!(target_os = "linux") {
+            Self::V4l2
+        } else if cfg!(windows) {
+            Self::Windows
+        } else {
+            Self::Y4m
+        }
+    }
+}
 
 #[derive(Debug, PartialEq, Eq)]
 pub struct Cli {
@@ -31,6 +55,11 @@ pub struct Cli {
     pub fps: u32,
     pub bitrate_kbps: u32,
     pub reconnect: bool,
+    pub sink: SinkKind,
+    pub output: String,
+    pub list: bool,
+    pub discover: bool,
+    pub udid: Option<String>,
 }
 
 impl Default for Cli {
@@ -43,6 +72,11 @@ impl Default for Cli {
             fps: 30,
             bitrate_kbps: 8000,
             reconnect: true,
+            sink: SinkKind::default_for_os(),
+            output: "-".into(),
+            list: false,
+            discover: false,
+            udid: None,
         }
     }
 }
@@ -64,6 +98,18 @@ impl Cli {
             match a.as_str() {
                 "-h" | "--help" => return Err(CliError::Help),
                 "--no-reconnect" => cli.reconnect = false,
+                "--list" => cli.list = true,
+                "--discover" => cli.discover = true,
+                "--udid" => cli.udid = Some(value("--udid")?),
+                "--output" => cli.output = value("--output")?,
+                "--sink" => {
+                    cli.sink = match value("--sink")?.as_str() {
+                        "v4l2" => SinkKind::V4l2,
+                        "windows" => SinkKind::Windows,
+                        "y4m" => SinkKind::Y4m,
+                        o => return Err(CliError::Invalid(format!("--sink desconocido: {o} (v4l2|windows|y4m)"))),
+                    }
+                }
                 "--addr" => cli.addr = value("--addr")?,
                 "--device" => cli.device = value("--device")?,
                 "--width" | "--height" | "--fps" | "--bitrate" => {
@@ -137,5 +183,13 @@ mod tests {
         assert!(matches!(parse(&["--fps", "x"]), Err(CliError::Invalid(_))));
         assert!(matches!(parse(&["--width", "0"]), Err(CliError::Invalid(_))));
         assert!(matches!(parse(&["--nope"]), Err(CliError::Invalid(_))));
+        assert!(matches!(parse(&["--sink", "x"]), Err(CliError::Invalid(_))));
+    }
+
+    #[test]
+    fn sink_and_discovery_options() {
+        let c = parse(&["--sink", "y4m", "--output", "a.y4m", "--discover", "--list", "--udid", "ABC"]).unwrap();
+        assert_eq!((c.sink, c.output.as_str(), c.discover, c.list), (SinkKind::Y4m, "a.y4m", true, true));
+        assert_eq!(c.udid.as_deref(), Some("ABC"));
     }
 }
