@@ -67,8 +67,7 @@ En Windows el segundo argumento (dispositivo) se ignora.
 
 ### Limitaciones
 
-- Un único formato: YUY2 1920x1080 a 30 fps. No implementa `IAMStreamConfig` ni `FilterData`, así que no hay selector de resolución.
-- El pin no informa el filtro al que pertenece (`pFilter` nulo en `PIN_INFO`).
+- Formatos YUY2 a 30 fps en 1080p, 720p y 480p (`IAMStreamConfig`); si la memoria compartida trae otra resolución, el filtro escala con letterbox. No hay `FilterData`, y `SetFormat` no reconecta un pin ya conectado.
 - No es Media Foundation Virtual Camera; las apps que sólo listan cámaras con Media Foundation no la verán.
 - Sin compilar ni registrar en Windows todavía: el código no se ha probado.
 
