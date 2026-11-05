@@ -62,7 +62,7 @@ enum OPCM {
 
 private extension Data {
     mutating func appendBE<T: FixedWidthInteger>(_ v: T) {
-        withUnsafeBytes(of: v.bigEndian) { append(contentsOf: $0) }
+        Swift.withUnsafeBytes(of: v.bigEndian) { append(contentsOf: $0) }
     }
 
     func readBE<T: FixedWidthInteger>(offset: Int) -> T {
