@@ -22,6 +22,8 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt, clippy
       - uses: Swatinem/rust-cache@v2
         with:
           workspaces: |
@@ -32,6 +34,24 @@ jobs:
         working-directory: core
         shell: bash
         run: cargo test --locked
+      - name: Tests del cliente de escritorio
+        working-directory: desktop
+        shell: bash
+        run: cargo test --locked
+      - name: Formato (núcleo y escritorio)
+        # Aviso por ahora; quitar continue-on-error cuando el código esté formateado.
+        continue-on-error: true
+        shell: bash
+        run: |
+          (cd core && cargo fmt --check)
+          (cd desktop && cargo fmt --check)
+      - name: Clippy (núcleo y escritorio)
+        # Aviso por ahora (sin -D warnings); quitar continue-on-error al limpiar avisos.
+        continue-on-error: true
+        shell: bash
+        run: |
+          (cd core && cargo clippy --locked)
+          (cd desktop && cargo clippy --locked)
       - name: Compilar cliente de escritorio (Linux)
         working-directory: desktop
         shell: bash
@@ -58,6 +78,10 @@ jobs:
         working-directory: android
         shell: bash
         run: ./gradlew :app:assembleDebug --no-daemon
+      - name: Tests unitarios de debug
+        working-directory: android
+        shell: bash
+        run: ./gradlew :app:testDebugUnitTest --no-daemon
 
   installer:
     name: Instalador de Windows (sintaxis)
@@ -78,4 +102,20 @@ jobs:
           printf 'MZ' > payload/opencam_vcam.dll
           makensis -DVERSION=0.0.0-test -DOUTDIR=. opencam.nsi
           test -f opencam-setup-windows-x86_64.exe
+
+  ios:
+    name: iOS (compilación del simulador)
+    # Aviso por ahora: falla hasta que exista ios/project.yml para xcodegen.
+    continue-on-error: true
+    runs-on: macos-14
+    steps:
+      - uses: actions/checkout@v4
+      - name: Instalar XcodeGen
+        run: brew install xcodegen
+      - name: Generar proyecto y compilar para simulador
+        working-directory: ios
+        shell: bash
+        run: |
+          xcodegen
+          xcodebuild -scheme OpenCam -sdk iphonesimulator CODE_SIGNING_ALLOWED=NO build
 

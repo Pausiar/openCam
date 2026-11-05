@@ -122,7 +122,8 @@ jobs:
           if-no-files-found: error
 
   macos-desktop:
-    name: Cliente de escritorio (macOS)
+    # Sin cámara virtual en macOS: sólo salida Y4M (no hay filtro de cámara).
+    name: Cliente de escritorio (macOS, sin cámara virtual; sólo salida Y4M)
     # Runner Apple Silicon: el binario es arm64 (no corre en Macs Intel).
     runs-on: macos-14
     steps:
@@ -137,11 +138,11 @@ jobs:
         run: cargo build --release --locked
       - name: Preparar artefacto
         shell: bash
-        run: cp desktop/target/release/opencam-desktop opencam-desktop-macos-arm64
+        run: cp desktop/target/release/opencam-desktop opencam-desktop-macos-arm64-sin-camara-virtual-solo-y4m
       - uses: actions/upload-artifact@v4
         with:
-          name: opencam-desktop-macos-arm64
-          path: opencam-desktop-macos-arm64
+          name: opencam-desktop-macos-arm64-sin-camara-virtual-solo-y4m
+          path: opencam-desktop-macos-arm64-sin-camara-virtual-solo-y4m
           if-no-files-found: error
 
   android:
