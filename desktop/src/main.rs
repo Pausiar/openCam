@@ -1,5 +1,7 @@
+mod cli;
 mod client;
 mod decoder;
+mod session;
 #[cfg(target_os = "linux")]
 mod sink_linux;
 #[cfg(windows)]
@@ -9,99 +11,91 @@ mod usbmuxd;
 
 use std::env;
 use std::io;
-use std::time::Duration;
 
+use cli::{Cli, CliError};
 use opencam_core::protocol::MsgType;
+#[cfg(any(target_os = "linux", windows))]
+use session::End;
 
+#[cfg(any(target_os = "linux", windows))]
 const QUEUE_CAPACITY: usize = 4;
-const DEFAULT_CONFIG: &str =
-    r#"{"codec":"h264","width":1920,"height":1080,"fps":30,"bitrate_kbps":8000,"lens":"wide"}"#;
 
 fn main() -> io::Result<()> {
-    // Uso: opencam-desktop <host:puerto|iphone> <dispositivo_v4l2>
     // Android por USB: adb forward tcp:4747 tcp:4747, y host 127.0.0.1:4747.
     // iPhone por USB (macOS/Linux con usbmuxd): usar el argumento `iphone`.
-    let args: Vec<String> = env::args().collect();
-    let addr = args.get(1).map(String::as_str).unwrap_or("127.0.0.1:4747");
-    let device = args.get(2).map(String::as_str).unwrap_or("/dev/video0");
-
-    #[cfg(unix)]
-    let iphone = addr == "iphone";
-    #[cfg(not(unix))]
-    let iphone = false;
-    let mut client = if iphone {
-        #[cfg(unix)]
-        {
-            client::Client::from_stream(Box::new(usbmuxd::connect_iphone(4747)?))
+    let cli = match Cli::parse(env::args().skip(1)) {
+        Ok(cli) => cli,
+        Err(CliError::Help) => {
+            print!("{}", cli::HELP);
+            return Ok(());
         }
-        #[cfg(not(unix))]
-        unreachable!()
-    } else {
-        client::Client::connect(addr, Duration::from_secs(5))?
+        Err(CliError::Invalid(msg)) => {
+            eprintln!("{msg}\n\n{}", cli::HELP);
+            std::process::exit(2);
+        }
     };
-    let caps = client::handshake(&mut client, DEFAULT_CONFIG)?;
-    println!("Conectado a {addr}. CAPS: {caps}");
-
-    let mut decoder = decoder::VideoDecoder::new(QUEUE_CAPACITY)
-        .map_err(|e| io::Error::other(e.to_string()))?;
-
-    // PING cada segundo desde un hilo aparte, con el socket clonado: la lectura no se bloquea.
-    // Usa el mismo origen de tiempo que `Client::now_us`, para que la latencia sea coherente.
-    let mut pinger = client.try_clone_stream()?;
-    let epoch = client.epoch();
-    std::thread::spawn(move || {
-        let mut seq: u32 = 0;
-        loop {
-            let header = opencam_core::Header {
-                msg_type: MsgType::Ping.code(),
-                flags: 0,
-                seq,
-                timestamp_us: epoch.elapsed().as_micros() as u64,
-                payload_len: 0,
-            };
-            seq = seq.wrapping_add(1);
-            if io::Write::write_all(&mut pinger, &header.encode()).is_err() {
-                break;
-            }
-            std::thread::sleep(Duration::from_secs(1));
-        }
-    });
 
     #[cfg(target_os = "linux")]
-    let mut camera = sink_linux::VirtualCamera::open(device, 1920, 1080)?;
+    let mut camera = sink_linux::VirtualCamera::open(&cli.device, cli.width, cli.height)?;
     #[cfg(windows)]
-    let mut camera = {
-        let _ = device;
-        sink_windows::VirtualCamera::open(1920, 1080)?
-    };
+    let mut camera = sink_windows::VirtualCamera::open(cli.width, cli.height)?;
     #[cfg(not(any(target_os = "linux", windows)))]
-    {
-        let _ = device;
-        return Err(io::Error::other("la cámara virtual de este sistema aún no está implementada"));
-    }
+    return Err(io::Error::other("la cámara virtual de este sistema aún no está implementada"));
 
+    #[cfg(any(target_os = "linux", windows))]
+    session::run(&cli, |client| serve(client, &mut camera))
+}
+
+/// Recibe vídeo de una conexión ya negociada hasta que se pierda o falle la cámara.
+#[cfg(any(target_os = "linux", windows))]
+fn serve(
+    client: &mut client::Client,
+    #[cfg(target_os = "linux")] camera: &mut sink_linux::VirtualCamera,
+    #[cfg(windows)] camera: &mut sink_windows::VirtualCamera,
+) -> End {
+    // Decodificador nuevo por conexión: espera el primer keyframe de la sesión.
+    let mut decoder = match decoder::VideoDecoder::new(QUEUE_CAPACITY) {
+        Ok(d) => d,
+        Err(e) => return End::Fatal(io::Error::other(e.to_string())),
+    };
     loop {
-        let msg = client.recv()?;
+        let msg = match client.recv() {
+            Ok(m) => m,
+            Err(e) => return End::Lost(e),
+        };
         match MsgType::from_code(msg.msg_type) {
             Some(MsgType::Video) => {
                 let keyframe = msg.flags & opencam_core::FLAG_KEYFRAME != 0;
-                if decoder.push_access_unit(msg.payload, msg.timestamp_us, keyframe) {
-                    client.send(MsgType::KeyframeRequest, 0, &[])?;
+                let mut need_keyframe = decoder.push_access_unit(msg.payload, msg.timestamp_us, keyframe);
+                match decoder.next_rgb() {
+                    Ok(Some(frame)) => {
+                        let yuyv = rgb_to_yuyv(&frame.rgb, frame.width, frame.height);
+                        if let Err(e) = camera.write_yuyv(&yuyv) {
+                            return End::Fatal(e);
+                        }
+                    }
+                    Ok(None) => {}
+                    Err(e) => {
+                        // Un frame corrupto no es fatal: se pide un keyframe y se sigue.
+                        eprintln!("error de decodificación: {e}");
+                        need_keyframe = true;
+                    }
                 }
-                if let Some(frame) = decoder.next_rgb().map_err(|e| io::Error::other(e.to_string()))? {
-                    let yuyv = rgb_to_yuyv(&frame.rgb, frame.width, frame.height);
-                    #[cfg(any(target_os = "linux", windows))]
-                    camera.write_yuyv(&yuyv)?;
-                    #[cfg(not(any(target_os = "linux", windows)))]
-                    let _ = yuyv;
+                if need_keyframe {
+                    if let Err(e) = client.send(MsgType::KeyframeRequest, 0, &[]) {
+                        return End::Lost(e);
+                    }
                 }
             }
             Some(MsgType::Pong) => {
                 println!(
-                    "latencia: {} ms, frames descartados: {}",
-                    client::pong_latency_us(&client, &msg) / 1000,
+                    "RTT: {} ms, frames descartados: {}",
+                    client::pong_latency_us(client, &msg) / 1000,
                     decoder.dropped()
                 );
+            }
+            Some(MsgType::Error) => {
+                eprintln!("ERROR del móvil: {}", String::from_utf8_lossy(&msg.payload));
             }
             _ => {}
         }
