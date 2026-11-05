@@ -113,7 +113,9 @@ impl Header {
             msg_type: b[5],
             flags: u16::from_be_bytes([b[6], b[7]]),
             seq: u32::from_be_bytes([b[8], b[9], b[10], b[11]]),
-            timestamp_us: u64::from_be_bytes([b[12], b[13], b[14], b[15], b[16], b[17], b[18], b[19]]),
+            timestamp_us: u64::from_be_bytes([
+                b[12], b[13], b[14], b[15], b[16], b[17], b[18], b[19],
+            ]),
             payload_len,
         })
     }
@@ -129,7 +131,13 @@ mod tests {
 
     #[test]
     fn roundtrip_header() {
-        let h = Header { msg_type: 0x10, flags: FLAG_KEYFRAME, seq: 7, timestamp_us: 1_234_567, payload_len: 42 };
+        let h = Header {
+            msg_type: 0x10,
+            flags: FLAG_KEYFRAME,
+            seq: 7,
+            timestamp_us: 1_234_567,
+            payload_len: 42,
+        };
         let decoded = Header::decode(&h.encode()).unwrap();
         assert_eq!(decoded, h);
         assert!(decoded.is_keyframe());
@@ -137,23 +145,47 @@ mod tests {
 
     #[test]
     fn rejects_bad_magic() {
-        let mut b = Header { msg_type: 1, flags: 0, seq: 0, timestamp_us: 0, payload_len: 0 }.encode();
+        let mut b = Header {
+            msg_type: 1,
+            flags: 0,
+            seq: 0,
+            timestamp_us: 0,
+            payload_len: 0,
+        }
+        .encode();
         b[0] = b'X';
         assert_eq!(Header::decode(&b), Err(ProtoError::BadMagic));
     }
 
     #[test]
     fn rejects_unsupported_version() {
-        let mut b = Header { msg_type: 1, flags: 0, seq: 0, timestamp_us: 0, payload_len: 0 }.encode();
+        let mut b = Header {
+            msg_type: 1,
+            flags: 0,
+            seq: 0,
+            timestamp_us: 0,
+            payload_len: 0,
+        }
+        .encode();
         b[4] = 2;
         assert_eq!(Header::decode(&b), Err(ProtoError::UnsupportedVersion(2)));
     }
 
     #[test]
     fn rejects_oversized_payload() {
-        let mut b = Header { msg_type: 1, flags: 0, seq: 0, timestamp_us: 0, payload_len: 0 }.encode();
+        let mut b = Header {
+            msg_type: 1,
+            flags: 0,
+            seq: 0,
+            timestamp_us: 0,
+            payload_len: 0,
+        }
+        .encode();
         b[20..24].copy_from_slice(&(MAX_PAYLOAD + 1).to_be_bytes());
-        assert_eq!(Header::decode(&b), Err(ProtoError::PayloadTooLarge(MAX_PAYLOAD + 1)));
+        assert_eq!(
+            Header::decode(&b),
+            Err(ProtoError::PayloadTooLarge(MAX_PAYLOAD + 1))
+        );
     }
 
     #[test]

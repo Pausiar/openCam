@@ -11,8 +11,8 @@ use opencam_core::shared_frame;
 use windows::core::w;
 use windows::Win32::Foundation::{CloseHandle, HANDLE, INVALID_HANDLE_VALUE};
 use windows::Win32::System::Memory::{
-    CreateFileMappingW, MapViewOfFile, UnmapViewOfFile, FILE_MAP_ALL_ACCESS, MEMORY_MAPPED_VIEW_ADDRESS,
-    PAGE_READWRITE,
+    CreateFileMappingW, MapViewOfFile, UnmapViewOfFile, FILE_MAP_ALL_ACCESS,
+    MEMORY_MAPPED_VIEW_ADDRESS, PAGE_READWRITE,
 };
 
 /// Nombre de la región compartida; debe coincidir con `windows-vcam/src/lib.rs`.
@@ -47,21 +47,34 @@ impl VirtualCamera {
         let view = unsafe { MapViewOfFile(mapping, FILE_MAP_ALL_ACCESS, 0, 0, len) };
         if view.Value.is_null() {
             // SAFETY: handle creado arriba, aún no está en uso.
-            unsafe { let _ = CloseHandle(mapping); }
+            unsafe {
+                let _ = CloseHandle(mapping);
+            }
             return Err(io::Error::last_os_error());
         }
-        Ok(Self { mapping, view, len, width, height, seq: 0 })
+        Ok(Self {
+            mapping,
+            view,
+            len,
+            width,
+            height,
+            seq: 0,
+        })
     }
 
     /// Publica un frame YUYV (2 bytes por píxel) para que lo lea el filtro.
     pub fn write_yuyv(&mut self, yuyv: &[u8]) -> io::Result<()> {
         // SAFETY: la vista mapea exactamente `len` bytes y sigue viva hasta `Drop`.
-        let region = unsafe { std::slice::from_raw_parts_mut(self.view.Value as *mut u8, self.len) };
+        let region =
+            unsafe { std::slice::from_raw_parts_mut(self.view.Value as *mut u8, self.len) };
         self.seq = self.seq.wrapping_add(1);
         if shared_frame::write_frame(region, self.width, self.height, self.seq, yuyv) {
             Ok(())
         } else {
-            Err(io::Error::new(io::ErrorKind::InvalidInput, "tamaño de frame incorrecto"))
+            Err(io::Error::new(
+                io::ErrorKind::InvalidInput,
+                "tamaño de frame incorrecto",
+            ))
         }
     }
 }

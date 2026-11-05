@@ -89,7 +89,9 @@ pub fn read_frame(region: &[u8], out: &mut Vec<u8>) -> Option<(u32, u32)> {
         let w = u32::from_le_bytes(region[4..8].try_into().ok()?);
         let h = u32::from_le_bytes(region[8..12].try_into().ok()?);
         // Con valores rasgados por un escritor concurrente, `seq` cambiará y se reintenta.
-        let pixels = (w as usize).checked_mul(h as usize).and_then(|n| n.checked_mul(2));
+        let pixels = (w as usize)
+            .checked_mul(h as usize)
+            .and_then(|n| n.checked_mul(2));
         let Some(pixels) = pixels.filter(|&n| n > 0 && HEADER_LEN + n <= region.len()) else {
             continue;
         };
@@ -119,7 +121,11 @@ pub fn letterbox_yuyv(src: &[u8], sw: u32, sh: u32, dst: &mut [u8], dw: u32, dh:
         return true;
     }
     // Rectángulo destino con la proporción de origen, ancho par para no partir macropíxeles.
-    let (mut fw, mut fh) = if dw * sh <= dh * sw { (dw, sh * dw / sw) } else { (sw * dh / sh, dh) };
+    let (mut fw, mut fh) = if dw * sh <= dh * sw {
+        (dw, sh * dw / sw)
+    } else {
+        (sw * dh / sh, dh)
+    };
     fw = (fw & !1).max(2);
     fh = fh.max(1);
     let (ox, oy) = (((dw - fw) / 2) & !1, (dh - fh) / 2);
@@ -159,7 +165,11 @@ mod tests {
         let yuyv = vec![7u8; (w * h * 2) as usize];
         assert!(write_frame(region, w, h, 1, &yuyv));
         let seq = read_seq(region).unwrap();
-        assert_eq!(seq % 2, 0, "al terminar la escritura la versión debe ser par");
+        assert_eq!(
+            seq % 2,
+            0,
+            "al terminar la escritura la versión debe ser par"
+        );
         assert_eq!(&region[HEADER_LEN..], &yuyv[..]);
         let mut out = Vec::new();
         assert_eq!(read_frame(region, &mut out), Some((w, h)));
@@ -195,7 +205,13 @@ mod tests {
             // SAFETY: `buf` vive hasta el `join` de ambos hilos.
             let region = unsafe { std::slice::from_raw_parts_mut(addr as *mut u8, len) };
             for i in 0..2000u32 {
-                assert!(write_frame(region, w, h, i, &vec![i as u8; (w * h * 2) as usize]));
+                assert!(write_frame(
+                    region,
+                    w,
+                    h,
+                    i,
+                    &vec![i as u8; (w * h * 2) as usize]
+                ));
             }
         });
         let reader = std::thread::spawn(move || {

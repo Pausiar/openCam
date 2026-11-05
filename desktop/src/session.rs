@@ -31,9 +31,14 @@ pub enum End {
 fn connect(cli: &Cli) -> io::Result<Client> {
     if cli.addr == "iphone" {
         #[cfg(unix)]
-        return Client::from_stream(Box::new(crate::usbmuxd::connect_iphone_with(4747, cli.udid.as_deref())?));
+        return Client::from_stream(Box::new(crate::usbmuxd::connect_iphone_with(
+            4747,
+            cli.udid.as_deref(),
+        )?));
         #[cfg(not(unix))]
-        return Err(io::Error::other("`iphone` solo está disponible en macOS y Linux"));
+        return Err(io::Error::other(
+            "`iphone` solo está disponible en macOS y Linux",
+        ));
     }
     Client::connect(cli.addr.as_str(), CONNECT_TIMEOUT)
 }
@@ -42,7 +47,9 @@ fn connect(cli: &Cli) -> io::Result<Client> {
 /// `--no-reconnect`). El backoff se reinicia tras cada handshake correcto.
 pub fn run(cli: &Cli, mut serve: impl FnMut(&mut Client) -> End) -> io::Result<()> {
     let config = cli.config_json();
-    let seed = SystemTime::now().duration_since(UNIX_EPOCH).map_or(1, |d| d.as_nanos() as u64);
+    let seed = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .map_or(1, |d| d.as_nanos() as u64);
     let mut backoff = Backoff::new(500, 5000, 20, seed);
     loop {
         let attempt = connect(cli).and_then(|mut c| {
@@ -79,8 +86,12 @@ pub fn run(cli: &Cli, mut serve: impl FnMut(&mut Client) -> End) -> io::Result<(
 /// NAL inicial de H.265 (VPS/SPS/PPS = tipos 32..=34): un móvil que ignora CONFIG y sigue en h265.
 /// shortcut: solo mira el primer NAL tras el start code; basta porque el primer frame lleva parámetros.
 fn looks_h265(au: &[u8]) -> bool {
-    let i = au.windows(3).position(|w| w == [0, 0, 1]).map_or(usize::MAX, |p| p + 3);
-    au.get(i).is_some_and(|b| (32..=34).contains(&((b >> 1) & 0x3f)) && b & 0x80 == 0 && b & 0x1f == 0)
+    let i = au
+        .windows(3)
+        .position(|w| w == [0, 0, 1])
+        .map_or(usize::MAX, |p| p + 3);
+    au.get(i)
+        .is_some_and(|b| (32..=34).contains(&((b >> 1) & 0x3f)) && b & 0x80 == 0 && b & 0x1f == 0)
 }
 
 /// Recibe vídeo de una conexión ya negociada hasta que se pierda o falle el sink.
@@ -110,7 +121,8 @@ pub fn serve(client: &mut Client, sink: &mut dyn FrameSink, cli: &Cli) -> End {
             }
             Some(MsgType::Video) => {
                 let keyframe = msg.flags & opencam_core::FLAG_KEYFRAME != 0;
-                let mut need_keyframe = decoder.push_access_unit(msg.payload, msg.timestamp_us, keyframe);
+                let mut need_keyframe =
+                    decoder.push_access_unit(msg.payload, msg.timestamp_us, keyframe);
                 match decoder.next_yuyv(w, h) {
                     Ok(Some(yuyv)) => {
                         metrics.on_decoded();
@@ -131,8 +143,12 @@ pub fn serve(client: &mut Client, sink: &mut dyn FrameSink, cli: &Cli) -> End {
                     }
                 }
             }
-            Some(MsgType::Pong) => metrics.on_rtt((client::pong_latency_us(client, &msg) / 1000) as u32),
-            Some(MsgType::Error) => eprintln!("ERROR del móvil: {}", String::from_utf8_lossy(&msg.payload)),
+            Some(MsgType::Pong) => {
+                metrics.on_rtt((client::pong_latency_us(client, &msg) / 1000) as u32)
+            }
+            Some(MsgType::Error) => {
+                eprintln!("ERROR del móvil: {}", String::from_utf8_lossy(&msg.payload))
+            }
             _ => {}
         }
         // shortcut: STATS se evalúa al llegar mensajes; un móvil mudo ya cae por la conexión.
@@ -159,12 +175,19 @@ mod tests {
         let mut raw = [0u8; HEADER_LEN];
         s.read_exact(&mut raw).unwrap();
         let h = Header::decode(&raw).unwrap();
-        s.read_exact(&mut vec![0u8; h.payload_len as usize]).unwrap();
+        s.read_exact(&mut vec![0u8; h.payload_len as usize])
+            .unwrap();
         h.msg_type
     }
 
     fn write_type(s: &mut TcpStream, t: MsgType, p: &[u8]) {
-        let h = Header { msg_type: t.code(), flags: 0, seq: 0, timestamp_us: 0, payload_len: p.len() as u32 };
+        let h = Header {
+            msg_type: t.code(),
+            flags: 0,
+            seq: 0,
+            timestamp_us: 0,
+            payload_len: p.len() as u32,
+        };
         s.write_all(&h.encode()).unwrap();
         s.write_all(p).unwrap();
     }
@@ -173,7 +196,10 @@ mod tests {
     #[test]
     fn reconnects_and_repeats_handshake() {
         let listener = TcpListener::bind("127.0.0.1:0").unwrap();
-        let cli = Cli { addr: listener.local_addr().unwrap().to_string(), ..Cli::default() };
+        let cli = Cli {
+            addr: listener.local_addr().unwrap().to_string(),
+            ..Cli::default()
+        };
         let phone = std::thread::spawn(move || {
             for _ in 0..2 {
                 let (mut s, _) = listener.accept().unwrap();
@@ -203,7 +229,11 @@ mod tests {
     #[test]
     fn no_reconnect_fails_once() {
         let listener = TcpListener::bind("127.0.0.1:0").unwrap();
-        let cli = Cli { addr: listener.local_addr().unwrap().to_string(), reconnect: false, ..Cli::default() };
+        let cli = Cli {
+            addr: listener.local_addr().unwrap().to_string(),
+            reconnect: false,
+            ..Cli::default()
+        };
         drop(listener); // nadie escucha
         assert!(run(&cli, |_| End::Done).is_err());
     }
@@ -273,11 +303,27 @@ mod tests {
             let mut enc = Encoder::new().unwrap();
             let mut first = true;
             while !stop.load(std::sync::atomic::Ordering::SeqCst) {
-                let au = enc.encode(&YUVBuffer::from_vec(yuv.clone(), w, h)).unwrap().to_vec();
-                let flags = if first { opencam_core::FLAG_KEYFRAME } else { 0 };
+                let au = enc
+                    .encode(&YUVBuffer::from_vec(yuv.clone(), w, h))
+                    .unwrap()
+                    .to_vec();
+                let flags = if first {
+                    opencam_core::FLAG_KEYFRAME
+                } else {
+                    0
+                };
                 first = false;
-                let hdr = Header { msg_type: MsgType::Video.code(), flags, seq: 0, timestamp_us: 0, payload_len: au.len() as u32 };
-                if s.write_all(&hdr.encode()).and_then(|_| s.write_all(&au)).is_err() {
+                let hdr = Header {
+                    msg_type: MsgType::Video.code(),
+                    flags,
+                    seq: 0,
+                    timestamp_us: 0,
+                    payload_len: au.len() as u32,
+                };
+                if s.write_all(&hdr.encode())
+                    .and_then(|_| s.write_all(&au))
+                    .is_err()
+                {
                     break;
                 }
                 std::thread::sleep(Duration::from_millis(80));
@@ -291,14 +337,21 @@ mod tests {
         let mut sink = crate::sink::Y4mSink::new(out.clone(), 1920, 1080, 30).unwrap();
         assert!(run(&cli, |c| serve(c, &mut sink, &cli)).is_err()); // el móvil cierra: Lost sin reconexión
         let stats = phone.join().unwrap();
-        assert!(stats.contains(r#""target_bitrate_kbps":8000"#) && stats.contains("decoded_fps"), "{stats}");
+        assert!(
+            stats.contains(r#""target_bitrate_kbps":8000"#) && stats.contains("decoded_fps"),
+            "{stats}"
+        );
 
         let data = out.0.lock().unwrap();
         let hdr = b"YUV4MPEG2 W1920 H1080 F30:1 Ip A1:1 C422\n";
         assert!(data.starts_with(hdr));
         let frame = 6 + 1920 * 1080 * 2;
         let body = &data[hdr.len()..];
-        assert!(body.len() >= 3 * frame && body.len() % frame == 0, "{} bytes", body.len());
+        assert!(
+            body.len() >= 3 * frame && body.len() % frame == 0,
+            "{} bytes",
+            body.len()
+        );
         // Plano Y: 16:9 sobre 16:9 llena el frame, incluida la esquina (sin barras).
         let y = &body[6..];
         assert!(y[540 * 1920 + 960].abs_diff(120) <= 4);

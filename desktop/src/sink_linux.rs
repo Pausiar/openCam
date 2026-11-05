@@ -71,10 +71,24 @@ impl VirtualCamera {
 
         let mut cap = Capability::default();
         // SAFETY: `cap` vive durante la llamada y su layout coincide con v4l2_capability.
-        if unsafe { libc::ioctl(file.as_raw_fd(), VIDIOC_QUERYCAP, &mut cap as *mut Capability) } < 0 {
-            return Err(io::Error::other(format!("{device} no es un dispositivo V4L2: {}", io::Error::last_os_error())));
+        if unsafe {
+            libc::ioctl(
+                file.as_raw_fd(),
+                VIDIOC_QUERYCAP,
+                &mut cap as *mut Capability,
+            )
+        } < 0
+        {
+            return Err(io::Error::other(format!(
+                "{device} no es un dispositivo V4L2: {}",
+                io::Error::last_os_error()
+            )));
         }
-        let caps = if cap.capabilities & V4L2_CAP_DEVICE_CAPS != 0 { cap.device_caps } else { cap.capabilities };
+        let caps = if cap.capabilities & V4L2_CAP_DEVICE_CAPS != 0 {
+            cap.device_caps
+        } else {
+            cap.capabilities
+        };
         if caps & V4L2_CAP_VIDEO_OUTPUT == 0 {
             return Err(io::Error::other(format!(
                 "{device} no admite salida de vídeo (V4L2_CAP_VIDEO_OUTPUT): no es un v4l2loopback; \
@@ -91,7 +105,11 @@ impl VirtualCamera {
             sizeimage: width * height * 2,
             ..Default::default()
         };
-        let mut fmt = Format { type_: V4L2_BUF_TYPE_VIDEO_OUTPUT, _pad: 0, fmt: [0u8; 200] };
+        let mut fmt = Format {
+            type_: V4L2_BUF_TYPE_VIDEO_OUTPUT,
+            _pad: 0,
+            fmt: [0u8; 200],
+        };
         // SAFETY: `PixFormat` es `repr(C)` y cabe en el campo `fmt` de `Format`.
         unsafe {
             std::ptr::copy_nonoverlapping(
@@ -105,14 +123,21 @@ impl VirtualCamera {
         if rc < 0 {
             return Err(io::Error::last_os_error());
         }
-        Ok(Self { file, width, height })
+        Ok(Self {
+            file,
+            width,
+            height,
+        })
     }
 
     /// Escribe un frame ya convertido a YUYV (2 bytes por píxel).
     pub fn write_yuyv(&mut self, yuyv: &[u8]) -> io::Result<()> {
         let expected = (self.width * self.height * 2) as usize;
         if yuyv.len() != expected {
-            return Err(io::Error::new(io::ErrorKind::InvalidInput, "tamaño de frame incorrecto"));
+            return Err(io::Error::new(
+                io::ErrorKind::InvalidInput,
+                "tamaño de frame incorrecto",
+            ));
         }
         self.file.write_all(yuyv)
     }

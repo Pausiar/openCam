@@ -12,8 +12,17 @@ pub struct Backoff {
 impl Backoff {
     /// Espera = min(base·2^intento, max), ±`jitter_pct`% (0..=100), nunca por encima de `max_ms`.
     pub fn new(base_ms: u64, max_ms: u64, jitter_pct: u64, seed: u64) -> Self {
-        assert!(base_ms > 0 && base_ms <= max_ms && jitter_pct <= 100, "parámetros inválidos");
-        Self { base_ms, max_ms, jitter_pct, attempt: 0, rng: seed }
+        assert!(
+            base_ms > 0 && base_ms <= max_ms && jitter_pct <= 100,
+            "parámetros inválidos"
+        );
+        Self {
+            base_ms,
+            max_ms,
+            jitter_pct,
+            attempt: 0,
+            rng: seed,
+        }
     }
 
     /// splitmix64: suficiente para jitter, sin dependencias.
@@ -27,7 +36,11 @@ impl Backoff {
 
     /// Siguiente espera en ms; avanza el intento.
     pub fn next_delay_ms(&mut self) -> u64 {
-        let shifted = if self.attempt < 63 { self.base_ms.saturating_mul(1u64 << self.attempt) } else { u64::MAX };
+        let shifted = if self.attempt < 63 {
+            self.base_ms.saturating_mul(1u64 << self.attempt)
+        } else {
+            u64::MAX
+        };
         let exp = shifted.min(self.max_ms);
         self.attempt = self.attempt.saturating_add(1);
         let span = exp / 100 * self.jitter_pct;
@@ -62,7 +75,10 @@ mod tests {
         assert_eq!(a, run());
         for (i, d) in a.iter().enumerate() {
             let exp = (500u64 << i).min(8000);
-            assert!(*d >= exp * 80 / 100 && *d <= 8000.min(exp * 120 / 100), "intento {i}: {d}");
+            assert!(
+                *d >= exp * 80 / 100 && *d <= 8000.min(exp * 120 / 100),
+                "intento {i}: {d}"
+            );
         }
     }
 

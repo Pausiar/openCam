@@ -14,7 +14,12 @@ pub struct BitrateConfig {
 
 impl Default for BitrateConfig {
     fn default() -> Self {
-        Self { min_kbps: 1000, max_kbps: 25_000, rtt_threshold_ms: 50, stable_windows: 3 }
+        Self {
+            min_kbps: 1000,
+            max_kbps: 25_000,
+            rtt_threshold_ms: 50,
+            stable_windows: 3,
+        }
     }
 }
 
@@ -33,7 +38,13 @@ pub struct BitrateController {
 impl BitrateController {
     pub fn new(cfg: BitrateConfig, initial_kbps: u32) -> Self {
         assert!(cfg.min_kbps <= cfg.max_kbps, "min > max");
-        Self { cfg, current: initial_kbps.clamp(cfg.min_kbps, cfg.max_kbps), base_rtt: None, prev_dropped: 0, stable: 0 }
+        Self {
+            cfg,
+            current: initial_kbps.clamp(cfg.min_kbps, cfg.max_kbps),
+            base_rtt: None,
+            prev_dropped: 0,
+            stable: 0,
+        }
     }
 
     pub fn target_kbps(&self) -> u32 {
@@ -109,7 +120,13 @@ mod tests {
 
     #[test]
     fn respects_min_and_max() {
-        let mut c = BitrateController::new(BitrateConfig { max_kbps: 8100, ..Default::default() }, 8000);
+        let mut c = BitrateController::new(
+            BitrateConfig {
+                max_kbps: 8100,
+                ..Default::default()
+            },
+            8000,
+        );
         for _ in 0..9 {
             c.update(20, 0);
         }
@@ -122,6 +139,9 @@ mod tests {
 
     #[test]
     fn initial_is_clamped() {
-        assert_eq!(BitrateController::new(BitrateConfig::default(), 99_999).target_kbps(), 25_000);
+        assert_eq!(
+            BitrateController::new(BitrateConfig::default(), 99_999).target_kbps(),
+            25_000
+        );
     }
 }

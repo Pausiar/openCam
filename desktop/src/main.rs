@@ -39,10 +39,16 @@ fn main() -> io::Result<()> {
     }
     if cli.discover {
         let found = discovery::browse(Duration::from_secs(3))?;
-        let first = found
-            .first()
-            .ok_or_else(|| io::Error::new(io::ErrorKind::NotFound, "no se halló ningún teléfono por mDNS"))?;
-        eprintln!("Descubierto: {} ({}) en {}", first.name, first.platform, first.addr);
+        let first = found.first().ok_or_else(|| {
+            io::Error::new(
+                io::ErrorKind::NotFound,
+                "no se halló ningún teléfono por mDNS",
+            )
+        })?;
+        eprintln!(
+            "Descubierto: {} ({}) en {}",
+            first.name, first.platform, first.addr
+        );
         cli.addr = first.addr.clone();
     }
 
@@ -56,7 +62,9 @@ fn list() -> io::Result<()> {
     }
     #[cfg(unix)]
     match usbmuxd::devices() {
-        Ok(devs) => devs.iter().for_each(|d| println!("iphone\tios\t{}", d.udid)),
+        Ok(devs) => devs
+            .iter()
+            .for_each(|d| println!("iphone\tios\t{}", d.udid)),
         Err(e) => eprintln!("usbmuxd: {e}"),
     }
     Ok(())
@@ -64,14 +72,25 @@ fn list() -> io::Result<()> {
 
 fn open_sink(cli: &Cli) -> io::Result<Box<dyn FrameSink>> {
     match cli.sink {
-        SinkKind::Y4m => {
-            Ok(Box::new(sink::Y4mSink::open(&cli.output, cli.width as usize, cli.height as usize, cli.fps)?))
-        }
+        SinkKind::Y4m => Ok(Box::new(sink::Y4mSink::open(
+            &cli.output,
+            cli.width as usize,
+            cli.height as usize,
+            cli.fps,
+        )?)),
         #[cfg(target_os = "linux")]
-        SinkKind::V4l2 => Ok(Box::new(sink_linux::VirtualCamera::open(&cli.device, cli.width, cli.height)?)),
+        SinkKind::V4l2 => Ok(Box::new(sink_linux::VirtualCamera::open(
+            &cli.device,
+            cli.width,
+            cli.height,
+        )?)),
         #[cfg(windows)]
-        SinkKind::Windows => Ok(Box::new(sink_windows::VirtualCamera::open(cli.width, cli.height)?)),
+        SinkKind::Windows => Ok(Box::new(sink_windows::VirtualCamera::open(
+            cli.width, cli.height,
+        )?)),
         #[allow(unreachable_patterns)]
-        _ => Err(io::Error::other("ese sink no está disponible en este sistema operativo")),
+        _ => Err(io::Error::other(
+            "ese sink no está disponible en este sistema operativo",
+        )),
     }
 }

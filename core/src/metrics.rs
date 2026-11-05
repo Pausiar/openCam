@@ -31,7 +31,13 @@ impl Metrics {
     /// `window_ms` > 0; `now_ms` abre la primera ventana.
     pub fn new(window_ms: u64, now_ms: u64) -> Self {
         assert!(window_ms > 0, "la ventana debe ser > 0");
-        Self { window_ms, window_start: now_ms, rtt: None, decoded: 0, dropped: 0 }
+        Self {
+            window_ms,
+            window_start: now_ms,
+            rtt: None,
+            decoded: 0,
+            dropped: 0,
+        }
     }
 
     /// EWMA con alpha = 1/8 (el primer valor se toma tal cual).
@@ -87,8 +93,22 @@ mod tests {
         m.on_dropped(2);
         m.on_dropped(1);
         assert_eq!(m.poll(999), None);
-        assert_eq!(m.poll(1000), Some(Snapshot { rtt_ms: 0, decoded_fps: 30, dropped: 3 }));
-        assert_eq!(m.poll(2000), Some(Snapshot { rtt_ms: 0, decoded_fps: 0, dropped: 0 }));
+        assert_eq!(
+            m.poll(1000),
+            Some(Snapshot {
+                rtt_ms: 0,
+                decoded_fps: 30,
+                dropped: 3
+            })
+        );
+        assert_eq!(
+            m.poll(2000),
+            Some(Snapshot {
+                rtt_ms: 0,
+                decoded_fps: 0,
+                dropped: 0
+            })
+        );
     }
 
     #[test]
@@ -102,7 +122,14 @@ mod tests {
 
     #[test]
     fn json_matches_protocol() {
-        let s = Snapshot { rtt_ms: 12, decoded_fps: 30, dropped: 1 };
-        assert_eq!(s.to_json(8000), r#"{"rtt_ms":12,"dropped":1,"decoded_fps":30,"target_bitrate_kbps":8000}"#);
+        let s = Snapshot {
+            rtt_ms: 12,
+            decoded_fps: 30,
+            dropped: 1,
+        };
+        assert_eq!(
+            s.to_json(8000),
+            r#"{"rtt_ms":12,"dropped":1,"decoded_fps":30,"target_bitrate_kbps":8000}"#
+        );
     }
 }

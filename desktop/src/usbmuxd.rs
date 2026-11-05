@@ -20,7 +20,9 @@ fn socket_path() -> io::Result<String> {
             None if v.starts_with('/') => Ok(v),
             None => Err(io::Error::new(
                 io::ErrorKind::InvalidInput,
-                format!("USBMUXD_SOCKET_ADDRESS={v}: solo se admiten sockets Unix (/ruta o UNIX:/ruta)"),
+                format!(
+                    "USBMUXD_SOCKET_ADDRESS={v}: solo se admiten sockets Unix (/ruta o UNIX:/ruta)"
+                ),
             )),
         },
         _ => Ok(DEFAULT_SOCKET.to_string()),
@@ -28,8 +30,12 @@ fn socket_path() -> io::Result<String> {
 }
 
 fn open(path: &str) -> io::Result<UnixStream> {
-    UnixStream::connect(path)
-        .map_err(|e| io::Error::new(e.kind(), format!("no se pudo abrir usbmuxd en {path}: {e} (¿está en marcha?)")))
+    UnixStream::connect(path).map_err(|e| {
+        io::Error::new(
+            e.kind(),
+            format!("no se pudo abrir usbmuxd en {path}: {e} (¿está en marcha?)"),
+        )
+    })
 }
 
 /// Dispositivo USB visto por usbmuxd.
@@ -60,19 +66,28 @@ fn connect_at(path: &str, device_port: u16, udid: Option<&str>) -> io::Result<Un
                 format!("no hay ningún iPhone con UDID {u} (conectados: {have:?})"),
             )
         })?,
-        None => devices
-            .first()
-            .ok_or_else(|| io::Error::new(io::ErrorKind::NotFound, "no hay ningún iPhone conectado por USB"))?,
+        None => devices.first().ok_or_else(|| {
+            io::Error::new(
+                io::ErrorKind::NotFound,
+                "no hay ningún iPhone conectado por USB",
+            )
+        })?,
     };
 
     let mut stream = open(path)?;
     let mut req = Dictionary::new();
     req.insert("MessageType".into(), Value::String("Connect".into()));
-    req.insert("ClientVersionString".into(), Value::String("opencam-desktop".into()));
+    req.insert(
+        "ClientVersionString".into(),
+        Value::String("opencam-desktop".into()),
+    );
     req.insert("ProgName".into(), Value::String("opencam-desktop".into()));
     req.insert("DeviceID".into(), Value::Integer(dev.id.into()));
     // usbmuxd espera el puerto en orden de red (big-endian) dentro de un entero.
-    req.insert("PortNumber".into(), Value::Integer(device_port.to_be().into()));
+    req.insert(
+        "PortNumber".into(),
+        Value::Integer(device_port.to_be().into()),
+    );
     let reply = exchange(&mut stream, &req)?;
     match reply.get("Number").and_then(Value::as_unsigned_integer) {
         Some(0) => Ok(stream),
@@ -83,9 +98,14 @@ fn connect_at(path: &str, device_port: u16, udid: Option<&str>) -> io::Result<Un
                 5 => "petición no válida",
                 _ => "error desconocido",
             };
-            Err(io::Error::other(format!("usbmuxd Connect falló (código {code}): {why}")))
+            Err(io::Error::other(format!(
+                "usbmuxd Connect falló (código {code}): {why}"
+            )))
         }
-        None => Err(io::Error::new(io::ErrorKind::InvalidData, "respuesta de usbmuxd no válida")),
+        None => Err(io::Error::new(
+            io::ErrorKind::InvalidData,
+            "respuesta de usbmuxd no válida",
+        )),
     }
 }
 
@@ -93,7 +113,10 @@ fn list_devices(path: &str) -> io::Result<Vec<Device>> {
     let mut stream = open(path)?;
     let mut req = Dictionary::new();
     req.insert("MessageType".into(), Value::String("ListDevices".into()));
-    req.insert("ClientVersionString".into(), Value::String("opencam-desktop".into()));
+    req.insert(
+        "ClientVersionString".into(),
+        Value::String("opencam-desktop".into()),
+    );
     req.insert("ProgName".into(), Value::String("opencam-desktop".into()));
     let reply = exchange(&mut stream, &req)?;
     let list = reply
@@ -111,7 +134,10 @@ fn list_devices(path: &str) -> io::Result<Vec<Device>> {
                 .and_then(Value::as_string)
                 .unwrap_or_default()
                 .to_string();
-            Some(Device { id: d.get("DeviceID")?.as_unsigned_integer()?, udid })
+            Some(Device {
+                id: d.get("DeviceID")?.as_unsigned_integer()?,
+                udid,
+            })
         })
         .collect())
 }
@@ -134,15 +160,21 @@ fn exchange(stream: &mut UnixStream, body: &Dictionary) -> io::Result<Dictionary
     stream.read_exact(&mut raw)?;
     let len = u32::from_le_bytes(raw[0..4].try_into().unwrap()) as usize;
     if !(HEADER_LEN..=HEADER_LEN + 1024 * 1024).contains(&len) {
-        return Err(io::Error::new(io::ErrorKind::InvalidData, "longitud de respuesta fuera de rango"));
+        return Err(io::Error::new(
+            io::ErrorKind::InvalidData,
+            "longitud de respuesta fuera de rango",
+        ));
     }
     let mut payload = vec![0u8; len - HEADER_LEN];
     stream.read_exact(&mut payload)?;
-    let value: Value =
-        plist::from_bytes(&payload).map_err(|e| io::Error::new(io::ErrorKind::InvalidData, e.to_string()))?;
-    value
-        .into_dictionary()
-        .ok_or_else(|| io::Error::new(io::ErrorKind::InvalidData, "respuesta plist no es un diccionario"))
+    let value: Value = plist::from_bytes(&payload)
+        .map_err(|e| io::Error::new(io::ErrorKind::InvalidData, e.to_string()))?;
+    value.into_dictionary().ok_or_else(|| {
+        io::Error::new(
+            io::ErrorKind::InvalidData,
+            "respuesta plist no es un diccionario",
+        )
+    })
 }
 
 #[cfg(test)]
@@ -156,7 +188,10 @@ mod tests {
         let len = u32::from_le_bytes(h[0..4].try_into().unwrap()) as usize;
         let mut b = vec![0u8; len - HEADER_LEN];
         s.read_exact(&mut b).unwrap();
-        plist::from_bytes::<Value>(&b).unwrap().into_dictionary().unwrap()
+        plist::from_bytes::<Value>(&b)
+            .unwrap()
+            .into_dictionary()
+            .unwrap()
     }
 
     fn reply(s: &mut UnixStream, d: Dictionary) {
@@ -192,7 +227,10 @@ mod tests {
                 let mut r = Dictionary::new();
                 match req.get("MessageType").and_then(Value::as_string) {
                     Some("ListDevices") => {
-                        r.insert("DeviceList".into(), Value::Array(vec![device(1, "AAA"), device(2, "BBB")]));
+                        r.insert(
+                            "DeviceList".into(),
+                            Value::Array(vec![device(1, "AAA"), device(2, "BBB")]),
+                        );
                     }
                     _ => {
                         let n = |k| req.get(k).and_then(Value::as_unsigned_integer).unwrap();
@@ -234,7 +272,9 @@ mod tests {
 
     #[test]
     fn missing_socket_is_clear() {
-        let e = connect_at("/nonexistent/mux", 4747, None).unwrap_err().to_string();
+        let e = connect_at("/nonexistent/mux", 4747, None)
+            .unwrap_err()
+            .to_string();
         assert!(e.contains("/nonexistent/mux"), "{e}");
     }
 }

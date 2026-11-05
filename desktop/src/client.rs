@@ -47,7 +47,12 @@ impl Sender {
 
     /// Cierra el socket para todos los clones (el lector y el hilo de PING fallan al instante).
     pub fn close(&self) {
-        let _ = self.0.lock().unwrap_or_else(|e| e.into_inner()).stream.shutdown();
+        let _ = self
+            .0
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .stream
+            .shutdown();
     }
 }
 
@@ -60,7 +65,10 @@ pub struct Client {
 
 impl Client {
     pub fn connect(addr: impl ToSocketAddrs, timeout: Duration) -> io::Result<Self> {
-        let addr = addr.to_socket_addrs()?.next().ok_or_else(|| io::Error::other("dirección no válida"))?;
+        let addr = addr
+            .to_socket_addrs()?
+            .next()
+            .ok_or_else(|| io::Error::other("dirección no válida"))?;
         let stream = TcpStream::connect_timeout(&addr, timeout)?;
         stream.set_nodelay(true)?;
         Self::from_stream(Box::new(stream))
@@ -69,8 +77,16 @@ impl Client {
     /// Envuelve un stream ya abierto (p. ej. túnel de usbmuxd).
     pub fn from_stream(stream: Box<dyn Stream>) -> io::Result<Self> {
         let epoch = Instant::now();
-        let writer = Writer { stream: stream.try_clone_boxed()?, seq: 0, epoch };
-        Ok(Self { reader: stream, tx: Sender(Arc::new(Mutex::new(writer))), epoch })
+        let writer = Writer {
+            stream: stream.try_clone_boxed()?,
+            seq: 0,
+            epoch,
+        };
+        Ok(Self {
+            reader: stream,
+            tx: Sender(Arc::new(Mutex::new(writer))),
+            epoch,
+        })
     }
 
     /// Microsegundos desde el arranque del cliente; son el `timestamp_us` de los PING.
@@ -109,7 +125,9 @@ impl Client {
             Ok(h) => h,
             Err(e) => {
                 if let ProtoError::UnsupportedVersion(v) = e {
-                    let body = format!(r#"{{"code":"unsupported_version","message":"versión {v} no soportada; se espera 1"}}"#);
+                    let body = format!(
+                        r#"{{"code":"unsupported_version","message":"versión {v} no soportada; se espera 1"}}"#
+                    );
                     let _ = self.send(MsgType::Error, 0, body.as_bytes());
                     self.close();
                 }
@@ -118,7 +136,12 @@ impl Client {
         };
         let mut payload = vec![0u8; header.payload_len as usize];
         self.reader.read_exact(&mut payload)?;
-        Ok(Message { msg_type: header.msg_type, flags: header.flags, timestamp_us: header.timestamp_us, payload })
+        Ok(Message {
+            msg_type: header.msg_type,
+            flags: header.flags,
+            timestamp_us: header.timestamp_us,
+            payload,
+        })
     }
 }
 
@@ -169,7 +192,11 @@ pub fn handshake(client: &mut Client, config_json: &str, timeout: Duration) -> i
 }
 
 fn handshake_inner(client: &mut Client, config_json: &str) -> io::Result<String> {
-    client.send(MsgType::Hello, 0, br#"{"proto":1,"platform":"desktop","name":"OpenCam"}"#)?;
+    client.send(
+        MsgType::Hello,
+        0,
+        br#"{"proto":1,"platform":"desktop","name":"OpenCam"}"#,
+    )?;
     let mut caps = None;
     // El móvil responde HELLO y CAPS; se ignoran el resto de tipos mientras tanto.
     for _ in 0..4 {
@@ -180,10 +207,13 @@ fn handshake_inner(client: &mut Client, config_json: &str) -> io::Result<String>
         }
         if msg.msg_type == MsgType::Error.code() {
             let body = String::from_utf8_lossy(&msg.payload);
-            return Err(io::Error::other(format!("el móvil respondió ERROR: {body}")));
+            return Err(io::Error::other(format!(
+                "el móvil respondió ERROR: {body}"
+            )));
         }
     }
-    let caps = caps.ok_or_else(|| io::Error::new(io::ErrorKind::InvalidData, "el móvil no envió CAPS"))?;
+    let caps =
+        caps.ok_or_else(|| io::Error::new(io::ErrorKind::InvalidData, "el móvil no envió CAPS"))?;
     client.send(MsgType::Config, 0, config_json.as_bytes())?;
     Ok(caps)
 }
@@ -216,14 +246,25 @@ mod tests {
                 (h.msg_type, h.timestamp_us, p)
             };
             let write_msg = |s: &mut TcpStream, t: MsgType, ts: u64, p: &[u8]| {
-                let h = Header { msg_type: t.code(), flags: 0, seq: 0, timestamp_us: ts, payload_len: p.len() as u32 };
+                let h = Header {
+                    msg_type: t.code(),
+                    flags: 0,
+                    seq: 0,
+                    timestamp_us: ts,
+                    payload_len: p.len() as u32,
+                };
                 s.write_all(&h.encode()).unwrap();
                 s.write_all(p).unwrap();
             };
 
             let (t, _, _) = read_msg(&mut s);
             assert_eq!(t, MsgType::Hello.code());
-            write_msg(&mut s, MsgType::Hello, 0, br#"{"proto":1,"platform":"android"}"#);
+            write_msg(
+                &mut s,
+                MsgType::Hello,
+                0,
+                br#"{"proto":1,"platform":"android"}"#,
+            );
             write_msg(&mut s, MsgType::Caps, 0, br#"{"platform":"android"}"#);
 
             let (t, _, cfg) = read_msg(&mut s);
@@ -273,7 +314,14 @@ mod tests {
             s.read_exact(&mut raw).unwrap(); // HELLO
             let hello_len = Header::decode(&raw).unwrap().payload_len as usize;
             s.read_exact(&mut vec![0u8; hello_len]).unwrap();
-            let mut bad = Header { msg_type: MsgType::Hello.code(), flags: 0, seq: 0, timestamp_us: 0, payload_len: 0 }.encode();
+            let mut bad = Header {
+                msg_type: MsgType::Hello.code(),
+                flags: 0,
+                seq: 0,
+                timestamp_us: 0,
+                payload_len: 0,
+            }
+            .encode();
             bad[4] = 2;
             s.write_all(&bad).unwrap();
             s.read_exact(&mut raw).unwrap();

@@ -3,8 +3,8 @@
 //! Los frames pasan antes por la `FrameQueue` del núcleo, que descarta P-frames
 //! hasta el primer keyframe y limita la cola para mantener la latencia baja.
 
-use openh264::decoder::Decoder;
 use opencam_core::{Frame, FrameQueue};
+use openh264::decoder::Decoder;
 
 use crate::convert::{self, ConvertError};
 
@@ -35,24 +35,43 @@ pub struct VideoDecoder {
 impl VideoDecoder {
     pub fn new(queue_capacity: usize) -> Result<Self, openh264::Error> {
         let decoder = Decoder::new()?;
-        Ok(Self { decoder, queue: FrameQueue::new(queue_capacity), seq: 0 })
+        Ok(Self {
+            decoder,
+            queue: FrameQueue::new(queue_capacity),
+            seq: 0,
+        })
     }
 
     /// Mete una unidad de acceso. Devuelve `true` si hace falta pedir un keyframe.
     pub fn push_access_unit(&mut self, data: Vec<u8>, timestamp_us: u64, keyframe: bool) -> bool {
         self.seq = self.seq.wrapping_add(1);
-        self.queue.push(Frame { seq: self.seq, timestamp_us, keyframe, data })
+        self.queue.push(Frame {
+            seq: self.seq,
+            timestamp_us,
+            keyframe,
+            data,
+        })
     }
 
     /// Decodifica el frame más reciente y lo devuelve como YUYV de `out_w` x `out_h` (escalado con letterbox); `Ok(None)` si no hay nada.
-        pub fn next_yuyv(&mut self, out_w: usize, out_h: usize) -> Result<Option<Vec<u8>>, DecodeError> {
+    pub fn next_yuyv(
+        &mut self,
+        out_w: usize,
+        out_h: usize,
+    ) -> Result<Option<Vec<u8>>, DecodeError> {
         let Some(frame) = self.queue.pop() else {
             return Ok(None);
         };
-        let Some(yuv) = self.decoder.decode(&frame.data).map_err(DecodeError::Decode)? else {
+        let Some(yuv) = self
+            .decoder
+            .decode(&frame.data)
+            .map_err(DecodeError::Decode)?
+        else {
             return Ok(None);
         };
-        convert::i420_to_yuyv(&yuv, out_w, out_h).map(Some).map_err(DecodeError::Convert)
+        convert::i420_to_yuyv(&yuv, out_w, out_h)
+            .map(Some)
+            .map_err(DecodeError::Convert)
     }
 
     pub fn dropped(&self) -> u64 {
@@ -70,7 +89,11 @@ mod tests {
         let mut buf = vec![120u8; w * h];
         buf.extend(vec![90u8; w * h / 4]);
         buf.extend(vec![200u8; w * h / 4]);
-        Encoder::new().unwrap().encode(&YUVBuffer::from_vec(buf, w, h)).unwrap().to_vec()
+        Encoder::new()
+            .unwrap()
+            .encode(&YUVBuffer::from_vec(buf, w, h))
+            .unwrap()
+            .to_vec()
     }
 
     #[test]
@@ -81,7 +104,11 @@ mod tests {
         assert_eq!(out.len(), 128 * 72 * 2);
         let mid = (36 * 128 + 64) * 2; // centro: dentro de la imagen
         let near = |a: u8, b: u8| a.abs_diff(b) <= 4;
-        assert!(near(out[mid], 120) && near(out[mid + 1], 90) && near(out[mid + 3], 200), "{:?}", &out[mid..mid + 4]);
+        assert!(
+            near(out[mid], 120) && near(out[mid + 1], 90) && near(out[mid + 3], 200),
+            "{:?}",
+            &out[mid..mid + 4]
+        );
         assert_eq!(&out[..4], &[16, 128, 16, 128]); // barra negra lateral
     }
 
@@ -90,6 +117,9 @@ mod tests {
         let mut dec = VideoDecoder::new(4).unwrap();
         assert!(dec.next_yuyv(7, 7).unwrap().is_none()); // cola vacía
         dec.push_access_unit(encode_solid(64, 48), 0, true);
-        assert!(matches!(dec.next_yuyv(7, 7), Err(DecodeError::Convert(ConvertError::InvalidSize))));
+        assert!(matches!(
+            dec.next_yuyv(7, 7),
+            Err(DecodeError::Convert(ConvertError::InvalidSize))
+        ));
     }
 }

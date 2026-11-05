@@ -93,7 +93,8 @@ impl Cli {
         let mut args = args.into_iter();
         while let Some(a) = args.next() {
             let mut value = |name: &str| {
-                args.next().ok_or_else(|| CliError::Invalid(format!("falta el valor de {name}")))
+                args.next()
+                    .ok_or_else(|| CliError::Invalid(format!("falta el valor de {name}")))
             };
             match a.as_str() {
                 "-h" | "--help" => return Err(CliError::Help),
@@ -107,17 +108,19 @@ impl Cli {
                         "v4l2" => SinkKind::V4l2,
                         "windows" => SinkKind::Windows,
                         "y4m" => SinkKind::Y4m,
-                        o => return Err(CliError::Invalid(format!("--sink desconocido: {o} (v4l2|windows|y4m)"))),
+                        o => {
+                            return Err(CliError::Invalid(format!(
+                                "--sink desconocido: {o} (v4l2|windows|y4m)"
+                            )))
+                        }
                     }
                 }
                 "--addr" => cli.addr = value("--addr")?,
                 "--device" => cli.device = value("--device")?,
                 "--width" | "--height" | "--fps" | "--bitrate" => {
-                    let n: u32 = value(&a)?
-                        .parse()
-                        .ok()
-                        .filter(|n| *n > 0)
-                        .ok_or_else(|| CliError::Invalid(format!("{a} necesita un entero positivo")))?;
+                    let n: u32 = value(&a)?.parse().ok().filter(|n| *n > 0).ok_or_else(|| {
+                        CliError::Invalid(format!("{a} necesita un entero positivo"))
+                    })?;
                     match a.as_str() {
                         "--width" => cli.width = n,
                         "--height" => cli.height = n,
@@ -164,16 +167,34 @@ mod tests {
     #[test]
     fn all_options() {
         let c = parse(&[
-            "iphone", "--device", "/dev/video2", "--width", "1280", "--height", "720", "--fps", "60",
-            "--bitrate", "4000", "--no-reconnect",
+            "iphone",
+            "--device",
+            "/dev/video2",
+            "--width",
+            "1280",
+            "--height",
+            "720",
+            "--fps",
+            "60",
+            "--bitrate",
+            "4000",
+            "--no-reconnect",
         ])
         .unwrap();
         assert_eq!(c.addr, "iphone");
         assert_eq!(c.device, "/dev/video2");
-        assert_eq!((c.width, c.height, c.fps, c.bitrate_kbps), (1280, 720, 60, 4000));
+        assert_eq!(
+            (c.width, c.height, c.fps, c.bitrate_kbps),
+            (1280, 720, 60, 4000)
+        );
         assert!(!c.reconnect);
-        assert!(c.config_json().contains(r#""width":1280,"height":720,"fps":60,"bitrate_kbps":4000"#));
-        assert_eq!(parse(&["--addr", "10.0.0.5:4747"]).unwrap().addr, "10.0.0.5:4747");
+        assert!(c
+            .config_json()
+            .contains(r#""width":1280,"height":720,"fps":60,"bitrate_kbps":4000"#));
+        assert_eq!(
+            parse(&["--addr", "10.0.0.5:4747"]).unwrap().addr,
+            "10.0.0.5:4747"
+        );
     }
 
     #[test]
@@ -181,15 +202,31 @@ mod tests {
         assert_eq!(parse(&["--help"]), Err(CliError::Help));
         assert!(matches!(parse(&["--fps"]), Err(CliError::Invalid(_))));
         assert!(matches!(parse(&["--fps", "x"]), Err(CliError::Invalid(_))));
-        assert!(matches!(parse(&["--width", "0"]), Err(CliError::Invalid(_))));
+        assert!(matches!(
+            parse(&["--width", "0"]),
+            Err(CliError::Invalid(_))
+        ));
         assert!(matches!(parse(&["--nope"]), Err(CliError::Invalid(_))));
         assert!(matches!(parse(&["--sink", "x"]), Err(CliError::Invalid(_))));
     }
 
     #[test]
     fn sink_and_discovery_options() {
-        let c = parse(&["--sink", "y4m", "--output", "a.y4m", "--discover", "--list", "--udid", "ABC"]).unwrap();
-        assert_eq!((c.sink, c.output.as_str(), c.discover, c.list), (SinkKind::Y4m, "a.y4m", true, true));
+        let c = parse(&[
+            "--sink",
+            "y4m",
+            "--output",
+            "a.y4m",
+            "--discover",
+            "--list",
+            "--udid",
+            "ABC",
+        ])
+        .unwrap();
+        assert_eq!(
+            (c.sink, c.output.as_str(), c.discover, c.list),
+            (SinkKind::Y4m, "a.y4m", true, true)
+        );
         assert_eq!(c.udid.as_deref(), Some("ABC"));
     }
 }

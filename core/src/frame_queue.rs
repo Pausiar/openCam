@@ -25,7 +25,12 @@ pub struct FrameQueue {
 impl FrameQueue {
     pub fn new(capacity: usize) -> Self {
         assert!(capacity > 0, "la capacidad debe ser > 0");
-        Self { frames: VecDeque::with_capacity(capacity), capacity, seen_keyframe: false, dropped: 0 }
+        Self {
+            frames: VecDeque::with_capacity(capacity),
+            capacity,
+            seen_keyframe: false,
+            dropped: 0,
+        }
     }
 
     /// Inserta un frame. Devuelve `true` si ha solicitado un keyframe al emisor.
@@ -73,7 +78,12 @@ mod tests {
     use super::*;
 
     fn f(seq: u32, keyframe: bool) -> Frame {
-        Frame { seq, timestamp_us: seq as u64 * 33_000, keyframe, data: vec![seq as u8] }
+        Frame {
+            seq,
+            timestamp_us: seq as u64 * 33_000,
+            keyframe,
+            data: vec![seq as u8],
+        }
     }
 
     #[test]

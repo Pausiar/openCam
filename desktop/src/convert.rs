@@ -17,7 +17,11 @@ impl std::error::Error for ConvertError {}
 
 /// Convierte `src` a YUYV de `out_w` x `out_h`, manteniendo la relación de aspecto
 /// y rellenando con negro (Y=16, U=V=128) los bordes.
-pub fn i420_to_yuyv(src: &impl YUVSource, out_w: usize, out_h: usize) -> Result<Vec<u8>, ConvertError> {
+pub fn i420_to_yuyv(
+    src: &impl YUVSource,
+    out_w: usize,
+    out_h: usize,
+) -> Result<Vec<u8>, ConvertError> {
     if out_w == 0 || out_h == 0 || !out_w.is_multiple_of(2) || !out_h.is_multiple_of(2) {
         return Err(ConvertError::InvalidSize);
     }
@@ -34,7 +38,11 @@ pub fn i420_to_yuyv(src: &impl YUVSource, out_w: usize, out_h: usize) -> Result<
     }
 
     // Tamaño escalado que cabe en la salida; ancho par y origen par para alinear pares de píxeles.
-    let (mut dw, dh) = if sw * out_h > sh * out_w { (out_w, sh * out_w / sw) } else { (sw * out_h / sh, out_h) };
+    let (mut dw, dh) = if sw * out_h > sh * out_w {
+        (out_w, sh * out_w / sw)
+    } else {
+        (sw * out_h / sh, out_h)
+    };
     dw = (dw & !1).max(2);
     let dh = dh.max(1);
     let x0 = ((out_w - dw) / 2) & !1;
@@ -98,6 +106,9 @@ mod tests {
 
     #[test]
     fn odd_output_rejected() {
-        assert_eq!(i420_to_yuyv(&solid(8, 4, (0, 0, 0)), 7, 4), Err(ConvertError::InvalidSize));
+        assert_eq!(
+            i420_to_yuyv(&solid(8, 4, (0, 0, 0)), 7, 4),
+            Err(ConvertError::InvalidSize)
+        );
     }
 }
