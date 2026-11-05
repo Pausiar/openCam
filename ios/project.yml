@@ -1,0 +1,24 @@
+# Genera OpenCam.xcodeproj con: brew install xcodegen && cd ios && xcodegen generate
+name: OpenCam
+options:
+  bundleIdPrefix: dev.opencam
+  deploymentTarget:
+    iOS: "15.0"
+targets:
+  OpenCam:
+    type: application
+    platform: iOS
+    sources:
+      - path: OpenCam
+        excludes: [Info.plist]
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: dev.opencam.ios
+        SWIFT_VERSION: "5.0"
+        INFOPLIST_FILE: OpenCam/Info.plist
+        GENERATE_INFOPLIST_FILE: NO
+        TARGETED_DEVICE_FAMILY: "1"
+        MARKETING_VERSION: "0.1.0"
+        CURRENT_PROJECT_VERSION: "1"
+        CODE_SIGN_STYLE: Automatic
+        # Poner DEVELOPMENT_TEAM con tu Team ID para firmar en un iPhone real.
