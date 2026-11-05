@@ -4,6 +4,7 @@ import android.Manifest
 import android.app.Activity
 import android.content.Intent
 import android.content.pm.PackageManager
+import android.os.Build
 import android.os.Bundle
 import android.widget.Button
 import android.widget.TextView
@@ -43,15 +44,21 @@ class MainActivity : Activity() {
         if (ContextCompat.checkSelfPermission(this, Manifest.permission.CAMERA) == PackageManager.PERMISSION_GRANTED) {
             startStream()
         } else {
-            ActivityCompat.requestPermissions(this, arrayOf(Manifest.permission.CAMERA), REQ_CAMERA)
+            // POST_NOTIFICATIONS (Android 13+): sin él el aviso del servicio queda oculto, pero la cámara funciona.
+            val perms = if (Build.VERSION.SDK_INT >= 33) {
+                arrayOf(Manifest.permission.CAMERA, Manifest.permission.POST_NOTIFICATIONS)
+            } else arrayOf(Manifest.permission.CAMERA)
+            ActivityCompat.requestPermissions(this, perms, REQ_CAMERA)
         }
     }
 
     override fun onRequestPermissionsResult(requestCode: Int, permissions: Array<out String>, grantResults: IntArray) {
         super.onRequestPermissionsResult(requestCode, permissions, grantResults)
-        if (requestCode == REQ_CAMERA && grantResults.firstOrNull() == PackageManager.PERMISSION_GRANTED) {
+        if (requestCode != REQ_CAMERA) return
+        val cam = permissions.indexOf(Manifest.permission.CAMERA)
+        if (cam >= 0 && grantResults.getOrNull(cam) == PackageManager.PERMISSION_GRANTED) {
             startStream()
-        } else if (requestCode == REQ_CAMERA) {
+        } else {
             status.text = "Permiso de cámara denegado"
         }
     }

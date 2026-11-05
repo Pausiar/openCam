@@ -6,6 +6,7 @@ license = "MIT"
 description = "Cliente de escritorio de OpenCam: recibe OPCM y alimenta una cámara virtual"
 
 [dependencies]
+mdns-sd = "0.21.7"
 opencam-core = { path = "../core" }
 openh264 = "0.9.9"
 plist = "1.10.3"

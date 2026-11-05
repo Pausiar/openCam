@@ -15,6 +15,7 @@ enum OPCM {
         case video = 0x10
         case ping = 0x20
         case pong = 0x21
+        case stats = 0x22
         case keyframeRequest = 0x30
         case error = 0x7F
     }

@@ -1,6 +1,7 @@
 //! Filtro DirectShow de la cámara virtual de OpenCam (Windows).
 //!
-//! Es un filtro fuente con un pin de salida de vídeo YUY2 1920x1080 @ 30 fps.
+//! Es un filtro fuente con un pin de salida de vídeo YUY2 @ 30 fps (1080p, 720p o 480p;
+//! escala con letterbox si la memoria compartida trae otra resolución).
 //! Lee frames de la memoria compartida `Local\OpenCamVirtualCamera`, que escribe
 //! el cliente `opencam-desktop` (ver `opencam_core::shared_frame`).
 //!
@@ -14,7 +15,8 @@ mod pin;
 use std::ffi::c_void;
 use std::sync::atomic::{AtomicIsize, AtomicU32, Ordering};
 
-use windows::core::{implement, IUnknown, Interface, Ref, BOOL, GUID, HRESULT};
+use windows::core::{implement, ComObject, IUnknown, Interface, Ref, BOOL, GUID, HRESULT};
+use windows::Win32::Media::DirectShow::IBaseFilter;
 use windows::Win32::Foundation::{CLASS_E_NOAGGREGATION, E_POINTER, HMODULE, S_FALSE, S_OK};
 use windows::Win32::System::Com::{IClassFactory, IClassFactory_Impl};
 use windows::Win32::System::LibraryLoader::GetModuleFileNameW;
@@ -129,7 +131,9 @@ impl IClassFactory_Impl for Factory_Impl {
         if ppvobject.is_null() {
             return Err(E_POINTER.into());
         }
-        let unk: IUnknown = filter::Filter::new().into();
+        let obj = ComObject::new(filter::Filter::new());
+        obj.bind_pin(&obj.to_interface::<IBaseFilter>());
+        let unk: IUnknown = obj.to_interface();
         // SAFETY: `ppvobject` se comprobó no nulo arriba y COM exige que apunte a memoria válida.
         unsafe { unk.query(riid, ppvobject) }.ok()
     }

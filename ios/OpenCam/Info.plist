@@ -2,19 +2,42 @@
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <plist version="1.0">
 <dict>
+    <key>CFBundleDevelopmentRegion</key>
+    <string>$(DEVELOPMENT_LANGUAGE)</string>
+    <key>CFBundleExecutable</key>
+    <string>$(EXECUTABLE_NAME)</string>
     <key>CFBundleName</key>
     <string>OpenCam</string>
     <key>CFBundleIdentifier</key>
-    <string>dev.opencam.ios</string>
+    <string>$(PRODUCT_BUNDLE_IDENTIFIER)</string>
+    <key>CFBundlePackageType</key>
+    <string>APPL</string>
     <key>CFBundleVersion</key>
-    <string>1</string>
+    <string>$(CURRENT_PROJECT_VERSION)</string>
     <key>CFBundleShortVersionString</key>
-    <string>0.1.0</string>
+    <string>$(MARKETING_VERSION)</string>
+    <key>LSRequiresIPhoneOS</key>
+    <true/>
     <key>UILaunchScreen</key>
     <dict/>
+    <key>UIRequiredDeviceCapabilities</key>
+    <array>
+        <string>arm64</string>
+        <string>video-camera</string>
+    </array>
+    <key>UISupportedInterfaceOrientations</key>
+    <array>
+        <string>UIInterfaceOrientationPortrait</string>
+        <string>UIInterfaceOrientationLandscapeLeft</string>
+        <string>UIInterfaceOrientationLandscapeRight</string>
+    </array>
     <key>NSCameraUsageDescription</key>
     <string>OpenCam usa la cámara para enviar vídeo a tu PC.</string>
     <key>NSLocalNetworkUsageDescription</key>
     <string>OpenCam acepta la conexión de tu PC en la red local.</string>
+    <key>NSBonjourServices</key>
+    <array>
+        <string>_opencam._tcp</string>
+    </array>
 </dict>
 </plist>

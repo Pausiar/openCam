@@ -25,7 +25,12 @@ pub struct FrameQueue {
 impl FrameQueue {
     pub fn new(capacity: usize) -> Self {
         assert!(capacity > 0, "la capacidad debe ser > 0");
-        Self { frames: VecDeque::with_capacity(capacity), capacity, seen_keyframe: false, dropped: 0 }
+        Self {
+            frames: VecDeque::with_capacity(capacity),
+            capacity,
+            seen_keyframe: false,
+            dropped: 0,
+        }
     }
 
     /// Inserta un frame. Devuelve `true` si ha solicitado un keyframe al emisor.
@@ -73,7 +78,12 @@ mod tests {
     use super::*;
 
     fn f(seq: u32, keyframe: bool) -> Frame {
-        Frame { seq, timestamp_us: seq as u64 * 33_000, keyframe, data: vec![seq as u8] }
+        Frame {
+            seq,
+            timestamp_us: seq as u64 * 33_000,
+            keyframe,
+            data: vec![seq as u8],
+        }
     }
 
     #[test]
@@ -96,6 +106,43 @@ mod tests {
         assert_eq!(q.pop().unwrap().seq, 4);
         assert_eq!(q.pop().unwrap().seq, 5);
         assert_eq!(q.dropped(), 2);
+    }
+
+    #[test]
+    fn capacity_one_keeps_only_latest() {
+        let mut q = FrameQueue::new(1);
+        q.push(f(1, true));
+        q.push(f(2, false));
+        q.push(f(3, false));
+        assert_eq!(q.len(), 1);
+        assert_eq!(q.pop().unwrap().seq, 3);
+        assert_eq!(q.dropped(), 2);
+        assert!(q.pop().is_none());
+    }
+
+    #[test]
+    fn keyframe_on_full_queue_replaces_everything() {
+        let mut q = FrameQueue::new(3);
+        q.push(f(1, true));
+        q.push(f(2, false));
+        q.push(f(3, false));
+        assert_eq!(q.len(), 3);
+        assert!(!q.push(f(4, true)));
+        assert_eq!(q.len(), 1);
+        assert_eq!(q.dropped(), 3);
+        assert!(q.pop().unwrap().keyframe);
+    }
+
+    #[test]
+    fn dropped_counts_pre_keyframe_overflow_and_flush() {
+        let mut q = FrameQueue::new(2);
+        assert!(q.push(f(1, false))); // 1: sin keyframe
+        q.push(f(2, true));
+        q.push(f(3, false));
+        q.push(f(4, false)); // 2: desborda
+        q.push(f(5, true)); // 3: vacía 2 frames => +2
+        assert_eq!(q.dropped(), 1 + 1 + 2);
+        assert_eq!(q.len(), 1);
     }
 
     #[test]

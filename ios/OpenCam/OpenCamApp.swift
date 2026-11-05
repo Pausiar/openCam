@@ -1,4 +1,5 @@
 import SwiftUI
+import UIKit
 
 @main
 struct OpenCamApp: App {
@@ -33,6 +34,7 @@ struct ContentView: View {
     private func start() {
         do {
             try streamer.start()
+            UIApplication.shared.isIdleTimerDisabled = true // la pantalla no debe bloquearse mientras se emite
             running = true
             error = nil
         } catch {
@@ -42,6 +44,7 @@ struct ContentView: View {
 
     private func stop() {
         streamer.stop()
+        UIApplication.shared.isIdleTimerDisabled = false
         running = false
     }
 }
