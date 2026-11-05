@@ -7,7 +7,8 @@ Cliente de escritorio: se conecta al móvil por el protocolo OPCM (ver `docs/PRO
 | Sistema | Cámara virtual | Estado |
 |---|---|---|
 | Linux | `v4l2loopback` (`/dev/videoN`) | Implementado. Compila; no probado con el módulo cargado en este entorno. |
-| Windows | Filtro DirectShow (`desktop/windows-vcam`) | Implementado. Compila para Windows (verificado con `cargo check --target x86_64-pc-windows-gnu` y en CI); sin probar en ejecución. |
+| Windows | Filtro DirectShow (`desktop/windows-vcam`) | Implementado: YUY2 a 30 fps en 1920x1080, 1280x720 y 640x480 (`IAMStreamConfig`). Compila para Windows en CI; sin probar en ejecución. |
+| macOS | Ninguna | Sin cámara virtual. El binario se compila en CI, pero hoy termina con error al arrancar. Ver la sección macOS. |
 
 ## Compilar y probar
 
@@ -21,7 +22,7 @@ cargo test
 
 Dos piezas:
 
-- El cliente (`desktop/`) escribe cada frame YUY2 1920x1080 en la memoria compartida `Local\OpenCamVirtualCamera`. El formato está en `core/src/shared_frame.rs`.
+- El cliente (`desktop/`) escribe cada frame YUYV en la memoria compartida `Local\OpenCamVirtualCamera`, con el tamaño de `--width` y `--height` (por defecto 1920x1080). El formato está en `core/src/shared_frame.rs`.
 - El filtro (`desktop/windows-vcam/`, DLL `opencam_vcam.dll`) es una fuente de vídeo DirectShow que lee esa memoria y la entrega a las apps. Si la memoria no existe (el cliente no está en marcha), entrega negro; si el cliente se detiene, repite el último frame. Reabre la memoria cada segundo, así que el cliente puede arrancar o reiniciarse después de la cámara.
 
 El filtro es un crate independiente: `cargo build` en `desktop/` no lo compila.
@@ -63,13 +64,19 @@ Después, arranca el cliente y elige **OpenCam Virtual Camera** en la app que us
 cargo run --release -- 127.0.0.1:4747
 ```
 
-En Windows el segundo argumento (dispositivo) se ignora.
+En Windows `--device` se ignora.
 
 ### Limitaciones
 
 - Formatos YUY2 a 30 fps en 1080p, 720p y 480p (`IAMStreamConfig`); si la memoria compartida trae otra resolución, el filtro escala con letterbox. No hay `FilterData`, y `SetFormat` no reconecta un pin ya conectado.
 - No es Media Foundation Virtual Camera; las apps que sólo listan cámaras con Media Foundation no la verán.
-- Sin compilar ni registrar en Windows todavía: el código no se ha probado.
+- CI compila la DLL y el instalador, pero nadie la ha registrado ni ejecutado en Windows: el código no se ha probado.
+
+## macOS
+
+- Sin cámara virtual. El binario arm64 se compila en CI (job `macos-desktop`), pero hoy termina con error al arrancar, antes de conectar con el móvil: `la cámara virtual de este sistema aún no está implementada`.
+- `desktop/src/sink.rs` tiene un sink Y4M (YUV4MPEG2 4:2:2, a archivo o a stdout) con tests. Falta conectarlo a `main.rs` para que macOS tenga salida.
+- Pendiente: una cámara virtual para macOS.
 
 ## Linux: preparar la cámara virtual
 
