@@ -1,14 +1,15 @@
 //! Cliente OPCM del escritorio: se conecta al móvil (puerto 4747), negocia y recibe vídeo.
 //!
-//! Flujo: HELLO → CAPS → CONFIG → VIDEO continuo, con PING cada segundo para medir latencia.
+//! Flujo: HELLO → CAPS → CONFIG → VIDEO continuo, con PING cada segundo para medir el RTT.
 
 use std::io::{self, Read, Write};
-use std::net::{TcpStream, ToSocketAddrs};
+use std::net::{Shutdown, TcpStream, ToSocketAddrs};
 #[cfg(unix)]
 use std::os::unix::net::UnixStream;
+use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
-use opencam_core::protocol::{Header, MsgType, HEADER_LEN};
+use opencam_core::protocol::{Header, MsgType, ProtoError, HEADER_LEN};
 
 pub struct Message {
     pub msg_type: u8,
@@ -17,10 +18,43 @@ pub struct Message {
     pub payload: Vec<u8>,
 }
 
-/// Conexión OPCM ya establecida con el móvil.
-pub struct Client {
+/// Escritor compartido: un solo `seq` y exclusión mutua entre el hilo principal y el de PING.
+struct Writer {
     stream: Box<dyn Stream>,
     seq: u32,
+    epoch: Instant,
+}
+
+/// Manejador clonable para enviar mensajes desde cualquier hilo.
+#[derive(Clone)]
+pub struct Sender(Arc<Mutex<Writer>>);
+
+impl Sender {
+    pub fn send(&self, msg_type: MsgType, flags: u16, payload: &[u8]) -> io::Result<()> {
+        let mut w = self.0.lock().unwrap_or_else(|e| e.into_inner());
+        let header = Header {
+            msg_type: msg_type.code(),
+            flags,
+            seq: w.seq,
+            timestamp_us: w.epoch.elapsed().as_micros() as u64,
+            payload_len: payload.len() as u32,
+        };
+        w.seq = w.seq.wrapping_add(1);
+        w.stream.write_all(&header.encode())?;
+        w.stream.write_all(payload)?;
+        w.stream.flush()
+    }
+
+    /// Cierra el socket para todos los clones (el lector y el hilo de PING fallan al instante).
+    pub fn close(&self) {
+        let _ = self.0.lock().unwrap_or_else(|e| e.into_inner()).stream.shutdown();
+    }
+}
+
+/// Conexión OPCM ya establecida con el móvil.
+pub struct Client {
+    reader: Box<dyn Stream>,
+    tx: Sender,
     epoch: Instant,
 }
 
@@ -29,12 +63,14 @@ impl Client {
         let addr = addr.to_socket_addrs()?.next().ok_or_else(|| io::Error::other("dirección no válida"))?;
         let stream = TcpStream::connect_timeout(&addr, timeout)?;
         stream.set_nodelay(true)?;
-        Ok(Self { stream: Box::new(stream), seq: 0, epoch: Instant::now() })
+        Self::from_stream(Box::new(stream))
     }
 
     /// Envuelve un stream ya abierto (p. ej. túnel de usbmuxd).
-    pub fn from_stream(stream: Box<dyn Stream>) -> Self {
-        Self { stream, seq: 0, epoch: Instant::now() }
+    pub fn from_stream(stream: Box<dyn Stream>) -> io::Result<Self> {
+        let epoch = Instant::now();
+        let writer = Writer { stream: stream.try_clone_boxed()?, seq: 0, epoch };
+        Ok(Self { reader: stream, tx: Sender(Arc::new(Mutex::new(writer))), epoch })
     }
 
     /// Microsegundos desde el arranque del cliente; son el `timestamp_us` de los PING.
@@ -42,49 +78,66 @@ impl Client {
         self.epoch.elapsed().as_micros() as u64
     }
 
-    /// Origen de tiempo compartido con hilos que envían PING.
-    pub fn epoch(&self) -> Instant {
-        self.epoch
+    pub fn sender(&self) -> Sender {
+        self.tx.clone()
     }
 
-    pub fn send(&mut self, msg_type: MsgType, flags: u16, payload: &[u8]) -> io::Result<()> {
-        let header = Header {
-            msg_type: msg_type.code(),
-            flags,
-            seq: self.seq,
-            timestamp_us: self.now_us(),
-            payload_len: payload.len() as u32,
-        };
-        self.seq = self.seq.wrapping_add(1);
-        self.stream.write_all(&header.encode())?;
-        self.stream.write_all(payload)?;
-        self.stream.flush()
+    pub fn send(&self, msg_type: MsgType, flags: u16, payload: &[u8]) -> io::Result<()> {
+        self.tx.send(msg_type, flags, payload)
+    }
+
+    pub fn close(&self) {
+        self.tx.close();
+    }
+
+    /// PING cada segundo desde un hilo aparte; termina cuando el socket falla o se cierra.
+    pub fn spawn_pinger(&self) {
+        let tx = self.sender();
+        std::thread::spawn(move || {
+            while tx.send(MsgType::Ping, 0, &[]).is_ok() {
+                std::thread::sleep(Duration::from_secs(1));
+            }
+        });
     }
 
     /// Lee un mensaje completo. Valida magic, versión y tamaño antes de reservar memoria.
+    /// Ante una versión no soportada envía ERROR `unsupported_version` y cierra la conexión.
     pub fn recv(&mut self) -> io::Result<Message> {
         let mut raw = [0u8; HEADER_LEN];
-        self.stream.read_exact(&mut raw)?;
-        let header = Header::decode(&raw).map_err(|e| io::Error::new(io::ErrorKind::InvalidData, e.to_string()))?;
+        self.reader.read_exact(&mut raw)?;
+        let header = match Header::decode(&raw) {
+            Ok(h) => h,
+            Err(e) => {
+                if let ProtoError::UnsupportedVersion(v) = e {
+                    let body = format!(r#"{{"code":"unsupported_version","message":"versión {v} no soportada; se espera 1"}}"#);
+                    let _ = self.send(MsgType::Error, 0, body.as_bytes());
+                    self.close();
+                }
+                return Err(io::Error::new(io::ErrorKind::InvalidData, e.to_string()));
+            }
+        };
         let mut payload = vec![0u8; header.payload_len as usize];
-        self.stream.read_exact(&mut payload)?;
+        self.reader.read_exact(&mut payload)?;
         Ok(Message { msg_type: header.msg_type, flags: header.flags, timestamp_us: header.timestamp_us, payload })
-    }
-
-    /// Clona el socket para enviar PING desde otro hilo sin bloquear la lectura.
-    pub fn try_clone_stream(&self) -> io::Result<Box<dyn Stream>> {
-        self.stream.try_clone_boxed()
     }
 }
 
 /// Stream bidireccional con clonación, común a TCP (Android, Wi-Fi) y Unix (túnel usbmuxd).
 pub trait Stream: Read + Write + Send {
     fn try_clone_boxed(&self) -> io::Result<Box<dyn Stream>>;
+    fn set_read_timeout(&self, dur: Option<Duration>) -> io::Result<()>;
+    fn shutdown(&self) -> io::Result<()>;
 }
 
 impl Stream for TcpStream {
     fn try_clone_boxed(&self) -> io::Result<Box<dyn Stream>> {
         Ok(Box::new(self.try_clone()?))
+    }
+    fn set_read_timeout(&self, dur: Option<Duration>) -> io::Result<()> {
+        TcpStream::set_read_timeout(self, dur)
+    }
+    fn shutdown(&self) -> io::Result<()> {
+        TcpStream::shutdown(self, Shutdown::Both)
     }
 }
 
@@ -93,10 +146,29 @@ impl Stream for UnixStream {
     fn try_clone_boxed(&self) -> io::Result<Box<dyn Stream>> {
         Ok(Box::new(self.try_clone()?))
     }
+    fn set_read_timeout(&self, dur: Option<Duration>) -> io::Result<()> {
+        UnixStream::set_read_timeout(self, dur)
+    }
+    fn shutdown(&self) -> io::Result<()> {
+        UnixStream::shutdown(self, Shutdown::Both)
+    }
 }
 
 /// Handshake completo: HELLO del escritorio, espera CAPS y envía CONFIG.
-pub fn handshake(client: &mut Client, config_json: &str) -> io::Result<String> {
+/// Un móvil mudo no bloquea: cada lectura caduca a los `timeout`.
+pub fn handshake(client: &mut Client, config_json: &str, timeout: Duration) -> io::Result<String> {
+    client.reader.set_read_timeout(Some(timeout))?;
+    let result = handshake_inner(client, config_json);
+    let _ = client.reader.set_read_timeout(None);
+    result.map_err(|e| match e.kind() {
+        io::ErrorKind::WouldBlock | io::ErrorKind::TimedOut => {
+            io::Error::new(io::ErrorKind::TimedOut, "timeout en el handshake")
+        }
+        _ => e,
+    })
+}
+
+fn handshake_inner(client: &mut Client, config_json: &str) -> io::Result<String> {
     client.send(MsgType::Hello, 0, br#"{"proto":1,"platform":"desktop","name":"OpenCam"}"#)?;
     let mut caps = None;
     // El móvil responde HELLO y CAPS; se ignoran el resto de tipos mientras tanto.
@@ -106,13 +178,17 @@ pub fn handshake(client: &mut Client, config_json: &str) -> io::Result<String> {
             caps = Some(String::from_utf8_lossy(&msg.payload).into_owned());
             break;
         }
+        if msg.msg_type == MsgType::Error.code() {
+            let body = String::from_utf8_lossy(&msg.payload);
+            return Err(io::Error::other(format!("el móvil respondió ERROR: {body}")));
+        }
     }
     let caps = caps.ok_or_else(|| io::Error::new(io::ErrorKind::InvalidData, "el móvil no envió CAPS"))?;
     client.send(MsgType::Config, 0, config_json.as_bytes())?;
     Ok(caps)
 }
 
-/// Latencia en microsegundos de un PONG: `ahora − timestamp_us` del PING original.
+/// RTT en microsegundos de un PONG: `ahora − timestamp_us` del PING original.
 pub fn pong_latency_us(client: &Client, pong: &Message) -> u64 {
     client.now_us().saturating_sub(pong.timestamp_us)
 }
@@ -160,13 +236,58 @@ mod tests {
         });
 
         let mut client = Client::connect(addr, Duration::from_secs(2)).unwrap();
-        let caps = handshake(&mut client, r#"{"codec":"h264"}"#).unwrap();
+        let caps = handshake(&mut client, r#"{"codec":"h264"}"#, Duration::from_secs(2)).unwrap();
         assert!(caps.contains("android"));
 
         client.send(MsgType::Ping, 0, &[]).unwrap();
         let pong = client.recv().unwrap();
         assert_eq!(pong.msg_type, MsgType::Pong.code());
         assert!(pong.timestamp_us <= client.now_us());
+        phone.join().unwrap();
+    }
+
+    #[test]
+    fn handshake_times_out_with_silent_phone() {
+        let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+        let addr = listener.local_addr().unwrap();
+        let phone = thread::spawn(move || {
+            let (s, _) = listener.accept().unwrap();
+            thread::sleep(Duration::from_millis(600));
+            drop(s);
+        });
+        let mut client = Client::connect(addr, Duration::from_secs(2)).unwrap();
+        let t = Instant::now();
+        let err = handshake(&mut client, "{}", Duration::from_millis(200)).unwrap_err();
+        assert_eq!(err.kind(), io::ErrorKind::TimedOut);
+        assert!(t.elapsed() < Duration::from_millis(550));
+        phone.join().unwrap();
+    }
+
+    #[test]
+    fn unsupported_version_gets_error_and_close() {
+        let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+        let addr = listener.local_addr().unwrap();
+        let phone = thread::spawn(move || {
+            let (mut s, _) = listener.accept().unwrap();
+            let mut raw = [0u8; HEADER_LEN];
+            s.read_exact(&mut raw).unwrap(); // HELLO
+            let hello_len = Header::decode(&raw).unwrap().payload_len as usize;
+            s.read_exact(&mut vec![0u8; hello_len]).unwrap();
+            let mut bad = Header { msg_type: MsgType::Hello.code(), flags: 0, seq: 0, timestamp_us: 0, payload_len: 0 }.encode();
+            bad[4] = 2;
+            s.write_all(&bad).unwrap();
+            s.read_exact(&mut raw).unwrap();
+            let h = Header::decode(&raw).unwrap();
+            assert_eq!(h.msg_type, MsgType::Error.code());
+            let mut p = vec![0u8; h.payload_len as usize];
+            s.read_exact(&mut p).unwrap();
+            assert!(String::from_utf8_lossy(&p).contains("unsupported_version"));
+            // El escritorio cierra: la siguiente lectura ve EOF.
+            assert_eq!(s.read(&mut raw).unwrap(), 0);
+        });
+        let mut client = Client::connect(addr, Duration::from_secs(2)).unwrap();
+        let err = handshake(&mut client, "{}", Duration::from_secs(2)).unwrap_err();
+        assert_eq!(err.kind(), io::ErrorKind::InvalidData);
         phone.join().unwrap();
     }
 }
