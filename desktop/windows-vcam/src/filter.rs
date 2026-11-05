@@ -1,11 +1,13 @@
 //! Filtro DirectShow de OpenCam: IBaseFilter con un único pin de salida de vídeo.
 //! Run arranca la entrega de frames y Stop la detiene.
 
+use std::ffi::c_void;
 use std::mem::ManuallyDrop;
 use std::ptr;
+use std::sync::atomic::{AtomicPtr, Ordering};
 use std::sync::{Arc, Mutex};
 
-use windows::core::{implement, PCWSTR, PWSTR, GUID, HRESULT, Ref};
+use windows::core::{implement, Interface, PCWSTR, PWSTR, GUID, HRESULT, Ref};
 use windows::Win32::Foundation::{E_NOTIMPL, S_FALSE, S_OK};
 use windows::Win32::Media::DirectShow::{
     IBaseFilter, IBaseFilter_Impl, IEnumPins, IEnumPins_Impl, IFilterGraph, IMediaFilter_Impl, IPin, FILTER_INFO,
@@ -23,7 +25,9 @@ const VFW_E_NOT_FOUND: HRESULT = HRESULT(0x8004_0216u32 as i32);
 pub struct Filter {
     shared: Arc<Shared>,
     pin: IPin,
-    graph: Mutex<Option<IFilterGraph>>,
+    /// `IFilterGraph` SIN contar referencia (convención de DirectShow: el grafo posee al filtro,
+    /// no al revés). `JoinFilterGraph(NULL)` lo borra antes de que el grafo se libere.
+    graph: AtomicPtr<c_void>,
 }
 
 impl Filter {
@@ -31,12 +35,20 @@ impl Filter {
         crate::lock();
         let shared = Shared::new();
         let pin: IPin = OutPin::new(shared.clone()).into();
-        Self { shared, pin, graph: Mutex::new(None) }
+        Self { shared, pin, graph: AtomicPtr::new(ptr::null_mut()) }
+    }
+}
+
+impl Filter {
+    /// Fija la referencia débil (sin AddRef) del pin a este filtro; `iface` es su `IBaseFilter`.
+    pub fn bind_pin(&self, iface: &IBaseFilter) {
+        self.shared.set_filter(iface.as_raw());
     }
 }
 
 impl Drop for Filter {
     fn drop(&mut self) {
+        self.shared.set_filter(ptr::null_mut());
         self.shared.stop();
         crate::unlock();
     }
@@ -92,7 +104,9 @@ impl IBaseFilter_Impl for Filter_Impl {
     }
 
     fn QueryFilterInfo(&self, pinfo: *mut FILTER_INFO) -> windows::core::Result<()> {
-        let graph = self.graph.lock().unwrap().clone();
+        let raw = self.graph.load(Ordering::Acquire);
+        // SAFETY: `raw` es nulo o el grafo que nos unió y aún no hizo JoinFilterGraph(NULL); el clon cuenta referencia para el llamador.
+        let graph = unsafe { IFilterGraph::from_raw_borrowed(&raw) }.cloned();
         let info = FILTER_INFO {
             achName: name128("OpenCam Virtual Camera"),
             pGraph: ManuallyDrop::new(graph),
@@ -104,7 +118,8 @@ impl IBaseFilter_Impl for Filter_Impl {
 
     fn JoinFilterGraph(&self, pgraph: Ref<IFilterGraph>, _pname: &PCWSTR) -> windows::core::Result<()> {
         // Un grafo nulo significa que el filtro se retira del grafo.
-        *self.graph.lock().unwrap() = pgraph.ok().ok().cloned();
+        let raw = pgraph.ok().ok().map_or(ptr::null_mut(), |g| g.as_raw());
+        self.graph.store(raw, Ordering::Release);
         Ok(())
     }
 

@@ -1,33 +1,43 @@
-//! Pin de salida del filtro: tipo de medio YUY2 1920x1080 a 30 fps y entrega de muestras.
-//! Los frames llegan de la memoria compartida (`opencam_core::shared_frame`); si no hay
-//! datos se entrega negro para que la cámara siga activa.
+//! Pin de salida del filtro: tipos de medio YUY2 1080p/720p/480p a 30 fps (`IAMStreamConfig`),
+//! categoría de pin (`IKsPropertySet`) y entrega de muestras. Los frames llegan de la memoria
+//! compartida (`opencam_core::shared_frame`) y se escalan con letterbox al formato negociado;
+//! si no hay datos se entrega negro para que la cámara siga activa.
 
+use std::ffi::c_void;
 use std::mem::{size_of, ManuallyDrop};
 use std::ptr;
-use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicPtr, AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex};
 use std::thread::{self, JoinHandle};
 use std::time::{Duration, Instant};
 
-use opencam_core::shared_frame::{self, HEADER_LEN};
+use opencam_core::shared_frame;
 use windows::core::{implement, w, Interface, OutRef, Ref, GUID, HRESULT, PCWSTR, PWSTR};
 // `IUnknownImpl` (de `windows-core`) aporta `to_interface` a los tipos generados por `#[implement]`.
 use windows_core::IUnknownImpl;
-use windows::Win32::Foundation::{CloseHandle, E_NOTIMPL, E_OUTOFMEMORY, E_POINTER, E_UNEXPECTED, HANDLE, S_FALSE, S_OK};
-use windows::Win32::Media::DirectShow::{
-    IEnumMediaTypes, IEnumMediaTypes_Impl, IMediaSample, IMemAllocator, IMemInputPin, IPin, IPin_Impl, PIN_DIRECTION,
-    ALLOCATOR_PROPERTIES, PIN_INFO, PINDIR_OUTPUT,
+use windows::Win32::Foundation::{
+    CloseHandle, E_INVALIDARG, E_NOTIMPL, E_OUTOFMEMORY, E_POINTER, E_UNEXPECTED, HANDLE, S_FALSE, S_OK, SIZE,
 };
+use windows::Win32::Media::DirectShow::{
+    IAMStreamConfig, IAMStreamConfig_Impl, IBaseFilter, IEnumMediaTypes, IEnumMediaTypes_Impl, IMediaSample,
+    IMemAllocator, IMemInputPin, IPin, IPin_Impl, PIN_DIRECTION, ALLOCATOR_PROPERTIES, PIN_INFO, PINDIR_OUTPUT,
+    VIDEO_STREAM_CONFIG_CAPS,
+};
+use windows::Win32::Media::KernelStreaming::{IKsPropertySet, IKsPropertySet_Impl};
 use windows::Win32::Media::MediaFoundation::AM_MEDIA_TYPE;
 use windows::Win32::System::Com::{CoTaskMemAlloc, CoTaskMemFree};
 use windows::Win32::System::Memory::{
-    MapViewOfFile, OpenFileMappingW, UnmapViewOfFile, FILE_MAP_READ, MEMORY_MAPPED_VIEW_ADDRESS,
+    MapViewOfFile, OpenFileMappingW, UnmapViewOfFile, VirtualQuery, FILE_MAP_READ, MEMORY_BASIC_INFORMATION,
+    MEMORY_MAPPED_VIEW_ADDRESS,
 };
 
-pub const WIDTH: u32 = 1920;
-pub const HEIGHT: u32 = 1080;
+/// Resoluciones que ofrece el pin (la primera es la predeterminada).
+const SIZES: [(u32, u32); 3] = [(1920, 1080), (1280, 720), (640, 480)];
 pub const FPS: i64 = 30;
-pub const PIXEL_BYTES: usize = (WIDTH * HEIGHT * 2) as usize;
+
+fn frame_bytes(idx: usize) -> usize {
+    (SIZES[idx].0 * SIZES[idx].1 * 2) as usize
+}
 /// Duración de un frame en unidades de 100 ns (DirectShow).
 const FRAME_100NS: i64 = 10_000_000 / FPS;
 /// Nombre de la región compartida; debe coincidir con `desktop/src/sink_windows.rs`.
@@ -37,6 +47,15 @@ const MEDIATYPE_VIDEO: GUID = GUID::from_u128(0x73646976_0000_0010_8000_00AA0038
 const MEDIASUBTYPE_YUY2: GUID = GUID::from_u128(0x32595559_0000_0010_8000_00AA00389B71);
 const FORMAT_VIDEOINFO: GUID = GUID::from_u128(0x05589F80_C356_11CE_BF01_00AA0055595A);
 const VFW_E_NOT_CONNECTED: HRESULT = HRESULT(0x8004_0209u32 as i32);
+const VFW_E_WRONG_STATE: HRESULT = HRESULT(0x8004_0227u32 as i32);
+const VFW_E_INVALIDMEDIATYPE: HRESULT = HRESULT(0x8004_0200u32 as i32);
+/// HRESULT_FROM_WIN32(ERROR_SET_NOT_FOUND) / (ERROR_NOT_FOUND): lo que devuelve `IKsPropertySet`.
+const E_PROP_SET_UNSUPPORTED: HRESULT = HRESULT(0x8007_0492u32 as i32);
+const E_PROP_ID_UNSUPPORTED: HRESULT = HRESULT(0x8007_0490u32 as i32);
+const AMPROPSETID_PIN: GUID = GUID::from_u128(0x9b00f101_1567_11d1_b3f1_00aa003761c5);
+const PIN_CATEGORY_CAPTURE: GUID = GUID::from_u128(0xfb6c4281_0353_11d1_905f_0000c0cc16ba);
+const AMPROPERTY_PIN_CATEGORY: u32 = 0;
+const KSPROPERTY_SUPPORT_GET: u32 = 1;
 
 #[repr(C)]
 #[derive(Default)]
@@ -79,6 +98,11 @@ struct VideoInfoHeader {
 /// Estado compartido entre el filtro, el pin y el hilo de entrega.
 pub struct Shared {
     running: AtomicBool,
+    /// Índice en `SIZES` del formato actual (`IAMStreamConfig`/negociado).
+    fmt: AtomicUsize,
+    /// `IBaseFilter` propietario, SIN contar referencia: el filtro posee el pin y un strong
+    /// aquí sería un ciclo. Lo pone la fábrica y lo borra `Filter::drop`.
+    filter: AtomicPtr<c_void>,
     peer: Mutex<Option<IPin>>,
     alloc: Mutex<Option<IMemAllocator>>,
     thread: Mutex<Option<JoinHandle<()>>>,
@@ -96,6 +120,8 @@ impl Shared {
     pub fn new() -> Arc<Self> {
         Arc::new(Self {
             running: AtomicBool::new(false),
+            fmt: AtomicUsize::new(0),
+            filter: AtomicPtr::new(ptr::null_mut()),
             peer: Mutex::new(None),
             alloc: Mutex::new(None),
             thread: Mutex::new(None),
@@ -104,6 +130,10 @@ impl Shared {
 
     fn is_connected(&self) -> bool {
         self.peer.lock().unwrap().is_some()
+    }
+
+    pub fn set_filter(&self, raw: *mut c_void) {
+        self.filter.store(raw, Ordering::Release);
     }
 
     pub fn is_running(&self) -> bool {
@@ -136,8 +166,10 @@ impl Shared {
     }
 }
 
-/// Construye el tipo de medio YUY2 1920x1080 @ 30 fps. `pbFormat` se reserva con CoTaskMemAlloc.
-pub fn build_media_type() -> Option<AM_MEDIA_TYPE> {
+/// Construye el tipo de medio YUY2 `SIZES[idx]` @ 30 fps. `pbFormat` se reserva con CoTaskMemAlloc.
+fn build_media_type(idx: usize) -> Option<AM_MEDIA_TYPE> {
+    let (w, h) = SIZES[idx];
+    let bytes = frame_bytes(idx);
     // SAFETY: CoTaskMemAlloc devuelve memoria del tamaño pedido o null.
     let format = unsafe { CoTaskMemAlloc(size_of::<VideoInfoHeader>()) } as *mut VideoInfoHeader;
     if format.is_null() {
@@ -147,12 +179,12 @@ pub fn build_media_type() -> Option<AM_MEDIA_TYPE> {
         avg_time_per_frame: FRAME_100NS,
         header: BitmapInfoHeader {
             size: size_of::<BitmapInfoHeader>() as u32,
-            width: WIDTH as i32,
-            height: HEIGHT as i32,
+            width: w as i32,
+            height: h as i32,
             planes: 1,
             bit_count: 16,
             compression: u32::from_le_bytes(*b"YUY2"),
-            size_image: PIXEL_BYTES as u32,
+            size_image: bytes as u32,
             ..Default::default()
         },
         ..Default::default()
@@ -164,7 +196,7 @@ pub fn build_media_type() -> Option<AM_MEDIA_TYPE> {
         subtype: MEDIASUBTYPE_YUY2,
         bFixedSizeSamples: true.into(),
         bTemporalCompression: false.into(),
-        lSampleSize: PIXEL_BYTES as u32,
+        lSampleSize: bytes as u32,
         formattype: FORMAT_VIDEOINFO,
         pUnk: ManuallyDrop::new(None),
         cbFormat: size_of::<VideoInfoHeader>() as u32,
@@ -172,8 +204,39 @@ pub fn build_media_type() -> Option<AM_MEDIA_TYPE> {
     })
 }
 
+/// Índice en `SIZES` de un tipo de medio completo YUY2/VIDEOINFO con una resolución que ofrecemos.
+fn media_type_index(mt: &AM_MEDIA_TYPE) -> Option<usize> {
+    if mt.majortype != MEDIATYPE_VIDEO
+        || mt.subtype != MEDIASUBTYPE_YUY2
+        || mt.formattype != FORMAT_VIDEOINFO
+        || mt.pbFormat.is_null()
+        || (mt.cbFormat as usize) < size_of::<VideoInfoHeader>()
+    {
+        return None;
+    }
+    // SAFETY: `pbFormat` no es nulo y `cbFormat` cubre un VIDEOINFOHEADER (comprobado arriba).
+    let vih = unsafe { ptr::read_unaligned(mt.pbFormat as *const VideoInfoHeader) };
+    // Una altura negativa sólo indica orden de filas; en YUY2 se ignora.
+    SIZES.iter().position(|&(w, h)| vih.header.width == w as i32 && vih.header.height.unsigned_abs() == h)
+}
+
+/// Copia de `build_media_type` en memoria de COM, para devolverla al llamador (que la libera).
+fn alloc_media_type(idx: usize) -> Option<*mut AM_MEDIA_TYPE> {
+    let value = build_media_type(idx)?;
+    // SAFETY: memoria del tamaño de AM_MEDIA_TYPE, liberada por quien la recibe.
+    let mt = unsafe { CoTaskMemAlloc(size_of::<AM_MEDIA_TYPE>()) } as *mut AM_MEDIA_TYPE;
+    if mt.is_null() {
+        // SAFETY: `pbFormat` lo reservó build_media_type y nadie más lo usa.
+        unsafe { CoTaskMemFree(Some(value.pbFormat as *const _)) };
+        return None;
+    }
+    // SAFETY: `mt` tiene espacio para un AM_MEDIA_TYPE.
+    unsafe { ptr::write(mt, value) };
+    Some(mt)
+}
+
 /// Pin de salida único del filtro.
-#[implement(IPin)]
+#[implement(IPin, IAMStreamConfig, IKsPropertySet)]
 pub struct OutPin {
     shared: Arc<Shared>,
 }
@@ -184,32 +247,66 @@ impl OutPin {
     }
 }
 
-impl IPin_Impl for OutPin_Impl {
-    fn Connect(&self, preceivepin: Ref<IPin>, _pmt: *const AM_MEDIA_TYPE) -> windows::core::Result<()> {
-        let peer: IPin = preceivepin.ok()?.clone();
+impl OutPin_Impl {
+    /// Negocia el formato `idx` con `peer` y deja listo el asignador de memoria.
+    fn connect_with(&self, peer: &IPin, idx: usize) -> windows::core::Result<()> {
         let me: IPin = self.to_interface();
-        let mt = build_media_type().ok_or(E_OUTOFMEMORY)?;
+        let mt = build_media_type(idx).ok_or(E_OUTOFMEMORY)?;
         // SAFETY: llamadas COM sobre interfaces válidas del grafo; `mt.pbFormat` se libera abajo.
         let result = unsafe { peer.ReceiveConnection(&me, &mt) };
         // SAFETY: `pbFormat` vino de CoTaskMemAlloc y ya no lo usa nadie.
         unsafe { CoTaskMemFree(Some(mt.pbFormat as *const _)) };
         result?;
-        // SAFETY: interfaz recibida del mismo grafo; llamadas COM válidas.
-        unsafe {
-            let input: IMemInputPin = peer.cast()?;
-            let alloc = input.GetAllocator()?;
-            input.NotifyAllocator(&alloc, false)?;
-            // Sin SetProperties y Commit el asignador no entrega buffers (GetBuffer falla).
-            let req = ALLOCATOR_PROPERTIES { cBuffers: 4, cbBuffer: PIXEL_BYTES as i32, cbAlign: 1, cbPrefix: 0 };
-            let actual = alloc.SetProperties(&req)?;
-            if (actual.cbBuffer as usize) < PIXEL_BYTES {
-                return Err(E_OUTOFMEMORY.into());
+        let setup = || -> windows::core::Result<IMemAllocator> {
+            // SAFETY: interfaz recibida del mismo grafo; llamadas COM válidas.
+            unsafe {
+                let input: IMemInputPin = peer.cast()?;
+                let alloc = input.GetAllocator()?;
+                input.NotifyAllocator(&alloc, false)?;
+                // Sin SetProperties y Commit el asignador no entrega buffers (GetBuffer falla).
+                let req = ALLOCATOR_PROPERTIES { cBuffers: 4, cbBuffer: frame_bytes(idx) as i32, cbAlign: 1, cbPrefix: 0 };
+                let actual = alloc.SetProperties(&req)?;
+                if (actual.cbBuffer as usize) < frame_bytes(idx) {
+                    return Err(E_OUTOFMEMORY.into());
+                }
+                alloc.Commit()?;
+                Ok(alloc)
             }
-            alloc.Commit()?;
-            *self.shared.alloc.lock().unwrap() = Some(alloc);
+        };
+        match setup() {
+            Ok(alloc) => {
+                self.shared.fmt.store(idx, Ordering::SeqCst);
+                *self.shared.alloc.lock().unwrap() = Some(alloc);
+                *self.shared.peer.lock().unwrap() = Some(peer.clone());
+                Ok(())
+            }
+            Err(e) => {
+                // SAFETY: deshace la conexión que acaba de aceptar el peer.
+                unsafe { let _ = peer.Disconnect(); }
+                Err(e)
+            }
         }
-        *self.shared.peer.lock().unwrap() = Some(peer);
-        Ok(())
+    }
+}
+
+impl IPin_Impl for OutPin_Impl {
+    fn Connect(&self, preceivepin: Ref<IPin>, pmt: *const AM_MEDIA_TYPE) -> windows::core::Result<()> {
+        let peer: IPin = preceivepin.ok()?.clone();
+        // SAFETY: `pmt` es nulo o apunta a un AM_MEDIA_TYPE válido del llamador.
+        let wanted = unsafe { pmt.as_ref() }.and_then(media_type_index);
+        // Con un tipo pedido se intenta sólo ése; si no, el actual y luego los demás.
+        let order: Vec<usize> = match wanted {
+            Some(i) => vec![i],
+            None => self.type_order(),
+        };
+        let mut last = Err(VFW_E_NOT_CONNECTED.into());
+        for idx in order {
+            last = self.connect_with(&peer, idx);
+            if last.is_ok() {
+                break;
+            }
+        }
+        last
     }
 
     fn ReceiveConnection(&self, _pconnector: Ref<IPin>, _pmt: *const AM_MEDIA_TYPE) -> windows::core::Result<()> {
@@ -230,15 +327,19 @@ impl IPin_Impl for OutPin_Impl {
         if !self.shared.is_connected() {
             return Err(VFW_E_NOT_CONNECTED.into());
         }
-        let mt = build_media_type().ok_or(E_OUTOFMEMORY)?;
+        let mt = build_media_type(self.shared.fmt.load(Ordering::SeqCst)).ok_or(E_OUTOFMEMORY)?;
         // SAFETY: `pmt` lo proporciona el llamador y tiene espacio para un AM_MEDIA_TYPE.
         unsafe { ptr::write(pmt, mt) };
         Ok(())
     }
 
     fn QueryPinInfo(&self, pinfo: *mut PIN_INFO) -> windows::core::Result<()> {
+        // Referencia fuerte para el llamador (la libera él); la del pin al filtro es débil.
+        let raw = self.shared.filter.load(Ordering::Acquire);
+        // SAFETY: `raw` es el IBaseFilter que posee este pin; `Filter::drop` lo pone a nulo antes de liberarse.
+        let filter = unsafe { IBaseFilter::from_raw_borrowed(&raw) }.cloned();
         let info = PIN_INFO {
-            pFilter: ManuallyDrop::new(None),
+            pFilter: ManuallyDrop::new(filter),
             dir: PINDIR_OUTPUT,
             achName: name128("Video"),
         };
@@ -261,7 +362,8 @@ impl IPin_Impl for OutPin_Impl {
         }
         // SAFETY: comprobado no nulo arriba; el llamador pasa un AM_MEDIA_TYPE válido.
         let mt = unsafe { &*pmt };
-        if mt.majortype == MEDIATYPE_VIDEO && mt.subtype == MEDIASUBTYPE_YUY2 {
+        let size_ok = mt.pbFormat.is_null() || media_type_index(mt).is_some();
+        if mt.majortype == MEDIATYPE_VIDEO && mt.subtype == MEDIASUBTYPE_YUY2 && size_ok {
             S_OK
         } else {
             S_FALSE
@@ -269,7 +371,7 @@ impl IPin_Impl for OutPin_Impl {
     }
 
     fn EnumMediaTypes(&self) -> windows::core::Result<IEnumMediaTypes> {
-        Ok(EnumMediaTypes { index: Mutex::new(0) }.into())
+        Ok(EnumMediaTypes { order: self.type_order(), index: Mutex::new(0) }.into())
     }
 
     fn QueryInternalConnections(&self, _appin: OutRef<IPin>, _npin: *mut u32) -> windows::core::Result<()> {
@@ -293,32 +395,155 @@ impl IPin_Impl for OutPin_Impl {
     }
 }
 
-/// Enumerador con un único tipo de medio.
+impl OutPin_Impl {
+    /// Índices de `SIZES` con el formato actual primero (es el preferido).
+    fn type_order(&self) -> Vec<usize> {
+        let cur = self.shared.fmt.load(Ordering::SeqCst);
+        std::iter::once(cur).chain((0..SIZES.len()).filter(|&i| i != cur)).collect()
+    }
+}
+
+impl IAMStreamConfig_Impl for OutPin_Impl {
+    fn SetFormat(&self, pmt: *const AM_MEDIA_TYPE) -> windows::core::Result<()> {
+        // SAFETY: `pmt` es nulo o apunta a un AM_MEDIA_TYPE válido del llamador.
+        let idx = match unsafe { pmt.as_ref() } {
+            None => 0, // nulo = formato predeterminado
+            Some(mt) => media_type_index(mt).ok_or(VFW_E_INVALIDMEDIATYPE)?,
+        };
+        // shortcut: no reconecta en caliente; con el pin conectado sólo se acepta el formato ya activo.
+        if self.shared.is_connected() && idx != self.shared.fmt.load(Ordering::SeqCst) {
+            return Err(VFW_E_WRONG_STATE.into());
+        }
+        self.shared.fmt.store(idx, Ordering::SeqCst);
+        Ok(())
+    }
+
+    fn GetFormat(&self) -> windows::core::Result<*mut AM_MEDIA_TYPE> {
+        alloc_media_type(self.shared.fmt.load(Ordering::SeqCst)).ok_or(E_OUTOFMEMORY.into())
+    }
+
+    fn GetNumberOfCapabilities(&self, picount: *mut i32, pisize: *mut i32) -> windows::core::Result<()> {
+        if picount.is_null() || pisize.is_null() {
+            return Err(E_POINTER.into());
+        }
+        // SAFETY: punteros no nulos del llamador.
+        unsafe {
+            *picount = SIZES.len() as i32;
+            *pisize = size_of::<VIDEO_STREAM_CONFIG_CAPS>() as i32;
+        }
+        Ok(())
+    }
+
+    fn GetStreamCaps(&self, iindex: i32, ppmt: *mut *mut AM_MEDIA_TYPE, pscc: *mut u8) -> windows::core::Result<()> {
+        if ppmt.is_null() || pscc.is_null() {
+            return Err(E_POINTER.into());
+        }
+        let idx = usize::try_from(iindex).ok().filter(|&i| i < SIZES.len()).ok_or(E_INVALIDARG)?;
+        let (w, h) = (SIZES[idx].0 as i32, SIZES[idx].1 as i32);
+        let size = SIZE { cx: w, cy: h };
+        // Resolución fija por índice: mínimo = máximo y sin granularidad (el filtro no recorta ni estira).
+        let caps = VIDEO_STREAM_CONFIG_CAPS {
+            guid: FORMAT_VIDEOINFO,
+            VideoStandard: 0,
+            InputSize: size,
+            MinCroppingSize: size,
+            MaxCroppingSize: size,
+            CropGranularityX: 0,
+            CropGranularityY: 0,
+            CropAlignX: 0,
+            CropAlignY: 0,
+            MinOutputSize: size,
+            MaxOutputSize: size,
+            OutputGranularityX: 0,
+            OutputGranularityY: 0,
+            StretchTapsX: 0,
+            StretchTapsY: 0,
+            ShrinkTapsX: 0,
+            ShrinkTapsY: 0,
+            MinFrameInterval: FRAME_100NS,
+            MaxFrameInterval: FRAME_100NS,
+            MinBitsPerSecond: w * h * 16 * FPS as i32,
+            MaxBitsPerSecond: w * h * 16 * FPS as i32,
+        };
+        let mt = alloc_media_type(idx).ok_or(E_OUTOFMEMORY)?;
+        // SAFETY: `pscc` tiene `size_of::<VIDEO_STREAM_CONFIG_CAPS>()` bytes (GetNumberOfCapabilities); `ppmt` no es nulo.
+        unsafe {
+            ptr::write_unaligned(pscc as *mut VIDEO_STREAM_CONFIG_CAPS, caps);
+            *ppmt = mt;
+        }
+        Ok(())
+    }
+}
+
+impl IKsPropertySet_Impl for OutPin_Impl {
+    fn Set(&self, _: *const GUID, _: u32, _: *const c_void, _: u32, _: *const c_void, _: u32) -> windows::core::Result<()> {
+        Err(E_NOTIMPL.into())
+    }
+
+    fn Get(
+        &self,
+        guidpropset: *const GUID,
+        dwpropid: u32,
+        _pinstancedata: *const c_void,
+        _cbinstancedata: u32,
+        ppropdata: *mut c_void,
+        cbpropdata: u32,
+        pcbreturned: *mut u32,
+    ) -> windows::core::Result<()> {
+        self.QuerySupported(guidpropset, dwpropid)?;
+        if pcbreturned.is_null() {
+            return Err(E_POINTER.into());
+        }
+        // SAFETY: `pcbreturned` no es nulo.
+        unsafe { *pcbreturned = size_of::<GUID>() as u32 };
+        if ppropdata.is_null() {
+            return Ok(()); // consulta de tamaño
+        }
+        if (cbpropdata as usize) < size_of::<GUID>() {
+            return Err(E_UNEXPECTED.into());
+        }
+        // SAFETY: el llamador reservó al menos `size_of::<GUID>()` bytes.
+        unsafe { ptr::write_unaligned(ppropdata as *mut GUID, PIN_CATEGORY_CAPTURE) };
+        Ok(())
+    }
+
+    fn QuerySupported(&self, guidpropset: *const GUID, dwpropid: u32) -> windows::core::Result<u32> {
+        // SAFETY: `guidpropset` es nulo o apunta a un GUID válido.
+        match unsafe { guidpropset.as_ref() } {
+            Some(g) if *g == AMPROPSETID_PIN => {}
+            Some(_) => return Err(E_PROP_SET_UNSUPPORTED.into()),
+            None => return Err(E_POINTER.into()),
+        }
+        if dwpropid == AMPROPERTY_PIN_CATEGORY {
+            Ok(KSPROPERTY_SUPPORT_GET)
+        } else {
+            Err(E_PROP_ID_UNSUPPORTED.into())
+        }
+    }
+}
+
+/// Enumerador de tipos de medio (formato actual primero).
 #[implement(IEnumMediaTypes)]
 pub struct EnumMediaTypes {
+    order: Vec<usize>,
     index: Mutex<u32>,
 }
 
 impl IEnumMediaTypes_Impl for EnumMediaTypes_Impl {
     fn Next(&self, cmediatypes: u32, ppmediatypes: *mut *mut AM_MEDIA_TYPE, pcfetched: *mut u32) -> HRESULT {
+        if ppmediatypes.is_null() || (pcfetched.is_null() && cmediatypes > 1) {
+            return E_POINTER;
+        }
         let mut idx = self.index.lock().unwrap();
         let mut fetched = 0u32;
-        if cmediatypes > 0 && *idx == 0 && !ppmediatypes.is_null() {
-            if let Some(value) = build_media_type() {
-                // SAFETY: memoria del tamaño de AM_MEDIA_TYPE, liberada por quien la recibe.
-                let mt = unsafe { CoTaskMemAlloc(size_of::<AM_MEDIA_TYPE>()) } as *mut AM_MEDIA_TYPE;
-                if mt.is_null() {
-                    // SAFETY: `pbFormat` lo reservó build_media_type y nadie más lo usa.
-                    unsafe { CoTaskMemFree(Some(value.pbFormat as *const _)) };
-                } else {
-                    unsafe {
-                        ptr::write(mt, value);
-                        *ppmediatypes = mt;
-                    }
-                    *idx = 1;
-                    fetched = 1;
-                }
-            }
+        while fetched < cmediatypes && (*idx as usize) < self.order.len() {
+            let Some(mt) = alloc_media_type(self.order[*idx as usize]) else {
+                break;
+            };
+            // SAFETY: el llamador reserva `cmediatypes` posiciones; las recibidas las libera él.
+            unsafe { *ppmediatypes.add(fetched as usize) = mt };
+            *idx += 1;
+            fetched += 1;
         }
         if !pcfetched.is_null() {
             // SAFETY: `pcfetched` lo proporciona el llamador.
@@ -328,8 +553,9 @@ impl IEnumMediaTypes_Impl for EnumMediaTypes_Impl {
     }
 
     fn Skip(&self, cmediatypes: u32) -> windows::core::Result<()> {
-        *self.index.lock().unwrap() += cmediatypes;
-        Ok(())
+        let mut idx = self.index.lock().unwrap();
+        *idx += cmediatypes;
+        if *idx as usize > self.order.len() { Err(S_FALSE.into()) } else { Ok(()) }
     }
 
     fn Reset(&self) -> windows::core::Result<()> {
@@ -338,27 +564,46 @@ impl IEnumMediaTypes_Impl for EnumMediaTypes_Impl {
     }
 
     fn Clone(&self) -> windows::core::Result<IEnumMediaTypes> {
-        Ok(EnumMediaTypes { index: Mutex::new(*self.index.lock().unwrap()) }.into())
+        Ok(EnumMediaTypes { order: self.order.clone(), index: Mutex::new(*self.index.lock().unwrap()) }.into())
     }
 }
 
-/// Hilo de entrega: a 30 fps copia el último frame compartido (o negro) y lo envía al pin conectado.
+/// Hilo de entrega: a 30 fps copia el último frame compartido (o negro), lo escala al formato
+/// negociado y lo envía al pin conectado.
 fn stream(shared: &Shared) {
     let mut reader: Option<SharedReader> = None;
-    let mut frame = vec![0u8; PIXEL_BYTES];
+    let mut src: Vec<u8> = Vec::new();
+    let mut frame: Vec<u8> = Vec::new();
+    let mut fmt = usize::MAX;
+    let mut have_frame = false;
     let period = Duration::from_micros(1_000_000 / FPS as u64);
     let start = Instant::now();
     let mut n: u32 = 0;
     while shared.running.load(Ordering::SeqCst) {
+        let cur = shared.fmt.load(Ordering::SeqCst);
+        if cur != fmt {
+            fmt = cur;
+            frame = vec![0u8; frame_bytes(fmt)];
+            have_frame = false;
+        }
         // Reabre la región cada segundo: recoge un escritor que arranca tarde o que se reinicia.
         if n % (FPS as u32) == 0 {
             reader = SharedReader::open();
         }
-        let fresh = reader.as_ref().is_some_and(|r| r.read(&mut frame));
-        if !fresh {
+        let (dw, dh) = SIZES[fmt];
+        let fresh = reader
+            .as_ref()
+            .and_then(|r| r.read(&mut src))
+            .is_some_and(|(sw, sh)| shared_frame::letterbox_yuyv(&src, sw, sh, &mut frame, dw, dh));
+        // Si una lectura falla (escritor a medias) se repite el frame anterior; negro sólo si no hubo ninguno.
+        have_frame |= fresh;
+        if !have_frame {
             fill_black(&mut frame);
         }
-        let _ = deliver(shared, &frame, n);
+        // Marca de tiempo = tiempo de flujo real desde Run (100 ns), monótona aunque el hilo se retrase.
+        // shortcut: no usa el reloj de referencia del grafo; basta para una fuente en vivo.
+        let t0 = (start.elapsed().as_nanos() / 100) as i64;
+        let _ = deliver(shared, &frame, t0, n == 0);
         n = n.wrapping_add(1);
         let next = start + period * n;
         let now = Instant::now();
@@ -368,7 +613,7 @@ fn stream(shared: &Shared) {
     }
 }
 
-fn deliver(shared: &Shared, frame: &[u8], n: u32) -> windows::core::Result<()> {
+fn deliver(shared: &Shared, frame: &[u8], t0: i64, first: bool) -> windows::core::Result<()> {
     let peer = shared.peer.lock().unwrap().clone();
     let alloc = shared.alloc.lock().unwrap().clone();
     let (Some(peer), Some(alloc)) = (peer, alloc) else {
@@ -380,12 +625,16 @@ fn deliver(shared: &Shared, frame: &[u8], n: u32) -> windows::core::Result<()> {
     unsafe {
         alloc.GetBuffer(&mut sample, None, None, 0)?;
         let s = sample.ok_or(E_POINTER)?;
+        if (s.GetSize() as usize) < frame.len() {
+            return Err(E_OUTOFMEMORY.into());
+        }
         let dst = s.GetPointer()?;
         ptr::copy_nonoverlapping(frame.as_ptr(), dst, frame.len());
         s.SetActualDataLength(frame.len() as i32)?;
-        let t0 = n as i64 * FRAME_100NS;
         let t1 = t0 + FRAME_100NS;
         s.SetTime(Some(&t0 as *const i64), Some(&t1 as *const i64))?;
+        s.SetSyncPoint(true)?;
+        s.SetDiscontinuity(first)?;
         input.Receive(&s)?;
     }
     Ok(())
@@ -406,37 +655,34 @@ struct SharedReader {
 
 impl SharedReader {
     fn open() -> Option<Self> {
-        let len = shared_frame::region_len(WIDTH, HEIGHT);
         // SAFETY: nombre válido; el handle se cierra en `Drop`.
         let handle = unsafe { OpenFileMappingW(FILE_MAP_READ.0, false, SHARED_NAME) }.ok()?;
-        // SAFETY: handle abierto arriba con tamaño de lectura.
-        let view = unsafe { MapViewOfFile(handle, FILE_MAP_READ, 0, 0, len) };
-        if view.Value.is_null() {
-            // SAFETY: handle abierto arriba y todavía no usado.
-            unsafe { let _ = CloseHandle(handle); }
+        // Longitud 0 = toda la región, sea cual sea la resolución con la que la creó el cliente.
+        // SAFETY: handle abierto arriba con permiso de lectura.
+        let view = unsafe { MapViewOfFile(handle, FILE_MAP_READ, 0, 0, 0) };
+        // SAFETY: `info` es válido y `view` es una vista recién mapeada (o nula, y entonces falla).
+        let mut info: MEMORY_BASIC_INFORMATION = unsafe { std::mem::zeroed() };
+        let queried = !view.Value.is_null()
+            && unsafe { VirtualQuery(Some(view.Value), &mut info, size_of::<MEMORY_BASIC_INFORMATION>()) } != 0;
+        if !queried {
+            // SAFETY: vista y handle abiertos arriba y todavía no usados.
+            unsafe {
+                if !view.Value.is_null() {
+                    let _ = UnmapViewOfFile(view);
+                }
+                let _ = CloseHandle(handle);
+            }
             return None;
         }
-        Some(Self { handle, view, len })
+        Some(Self { handle, view, len: info.RegionSize })
     }
 
-    /// Copia el último frame completo en `out` (seqlock). Devuelve `false` si no hay frame válido.
-    fn read(&self, out: &mut [u8]) -> bool {
-        // SAFETY: la vista mapea `len` bytes y sigue viva hasta `Drop`. El escritor usa
-        // un contador de versión; si cambia durante la copia se reintenta.
+    /// Copia el último frame completo en `out` (seqlock) y devuelve su tamaño; `None` si no hay frame válido.
+    fn read(&self, out: &mut Vec<u8>) -> Option<(u32, u32)> {
+        // SAFETY: la vista mapea `len` bytes y sigue viva hasta `Drop`. El escritor usa un contador
+        // de versión atómico; `read_frame` descarta copias rasgadas.
         let region = unsafe { std::slice::from_raw_parts(self.view.Value as *const u8, self.len) };
-        for _ in 0..3 {
-            let Some(before) = shared_frame::read_seq(region) else {
-                return false;
-            };
-            if before % 2 == 1 {
-                continue;
-            }
-            out.copy_from_slice(&region[HEADER_LEN..]);
-            if shared_frame::read_seq(region) == Some(before) {
-                return true;
-            }
-        }
-        false
+        shared_frame::read_frame(region, out)
     }
 }
 
