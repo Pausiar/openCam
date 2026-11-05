@@ -36,11 +36,14 @@ Tras la cabecera va el payload de `payload_len` bytes.
 | `0x10` | `VIDEO`           | móvil → escritorio | Unidad de acceso H.264 Annex-B |
 | `0x20` | `PING`            | escritorio → móvil | vacío; `timestamp_us` = reloj local |
 | `0x21` | `PONG`            | móvil → escritorio | vacío; devuelve el `timestamp_us` del PING |
+| `0x22` | `STATS`           | escritorio → móvil | JSON `{"rtt_ms":N,"dropped":N,"decoded_fps":N,"target_bitrate_kbps":N}` |
 | `0x30` | `KEYFRAME_REQUEST`| escritorio → móvil | vacío |
 | `0x40` | `AUDIO`           | móvil → escritorio | Reservado (Fase 3) |
 | `0x7F` | `ERROR`           | ambos sentidos     | JSON `{"code":"...","message":"..."}` |
 
-Un tipo desconocido se ignora y se registra; no cierra la conexión.
+Un tipo desconocido se ignora y se registra; no cierra la conexión. Así, un móvil antiguo ignora `STATS`.
+
+`STATS` se envía cada ~1 s: `rtt_ms` es el RTT suavizado (EWMA), `dropped` los frames descartados en la última ventana, `decoded_fps` los frames decodificados por segundo y `target_bitrate_kbps` el bitrate que el escritorio pide al emisor (controlador AIMD: ×0.8 ante congestión, +250 kbps tras varias ventanas estables). El móvil debe reconfigurar el codificador a ese valor.
 
 ## Flujo de sesión
 

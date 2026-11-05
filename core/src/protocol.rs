@@ -17,6 +17,7 @@ pub enum MsgType {
     Video,
     Ping,
     Pong,
+    Stats,
     KeyframeRequest,
     Audio,
     Error,
@@ -31,6 +32,7 @@ impl MsgType {
             MsgType::Video => 0x10,
             MsgType::Ping => 0x20,
             MsgType::Pong => 0x21,
+            MsgType::Stats => 0x22,
             MsgType::KeyframeRequest => 0x30,
             MsgType::Audio => 0x40,
             MsgType::Error => 0x7F,
@@ -46,6 +48,7 @@ impl MsgType {
             0x10 => MsgType::Video,
             0x20 => MsgType::Ping,
             0x21 => MsgType::Pong,
+            0x22 => MsgType::Stats,
             0x30 => MsgType::KeyframeRequest,
             0x40 => MsgType::Audio,
             0x7F => MsgType::Error,
@@ -155,7 +158,7 @@ mod tests {
 
     #[test]
     fn msg_type_codes_roundtrip() {
-        for code in [0x01, 0x02, 0x03, 0x10, 0x20, 0x21, 0x30, 0x40, 0x7F] {
+        for code in [0x01, 0x02, 0x03, 0x10, 0x20, 0x21, 0x22, 0x30, 0x40, 0x7F] {
             assert_eq!(MsgType::from_code(code).unwrap().code(), code);
         }
         assert_eq!(MsgType::from_code(0xEE), None);
