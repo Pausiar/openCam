@@ -75,3 +75,9 @@ impl Drop for VirtualCamera {
         }
     }
 }
+
+impl crate::sink::FrameSink for VirtualCamera {
+    fn write_yuyv(&mut self, yuyv: &[u8]) -> io::Result<()> {
+        VirtualCamera::write_yuyv(self, yuyv)
+    }
+}

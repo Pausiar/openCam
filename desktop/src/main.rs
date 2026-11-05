@@ -1,7 +1,9 @@
 mod cli;
 mod client;
+mod convert;
 mod decoder;
 mod session;
+mod sink;
 #[cfg(target_os = "linux")]
 mod sink_linux;
 #[cfg(windows)]
