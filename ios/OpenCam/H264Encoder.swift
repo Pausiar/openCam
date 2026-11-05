@@ -55,6 +55,13 @@ final class H264Encoder {
         session = nil
     }
 
+    /// Cambia el bitrate objetivo en caliente (STATS). Llamar desde la cola de captura.
+    func setBitrate(kbps: Int) {
+        guard let session else { return }
+        VTSessionSetProperty(session, key: kVTCompressionPropertyKey_AverageBitRate,
+                             value: NSNumber(value: kbps * 1000))
+    }
+
     /// Convierte un CMSampleBuffer AVCC a Annex-B. Los SPS/PPS van delante de los keyframes.
     private func emit(_ sample: CMSampleBuffer, timestampUs: UInt64) {
         guard let block = CMSampleBufferGetDataBuffer(sample) else { return }
@@ -63,37 +70,48 @@ final class H264Encoder {
         let keyframe = !notSync
 
         var out = Data()
-        if keyframe, let fmt = CMSampleBufferGetFormatDescription(sample) {
-            for i in 0..<2 {
-                var ptr: UnsafePointer<UInt8>?
-                var size = 0
-                var count = 0
-                CMVideoFormatDescriptionGetH264ParameterSetAtIndex(
-                    fmt, parameterSetIndex: i, parameterSetPointerOut: &ptr,
-                    parameterSetSizeOut: &size, parameterSetCountOut: &count, nalUnitHeaderLengthOut: nil)
-                if let ptr {
-                    out.append(contentsOf: [0, 0, 0, 1])
-                    out.append(ptr, count: size)
+        var nalHeaderLen: Int32 = 4
+        if let fmt = CMSampleBufferGetFormatDescription(sample) {
+            var count = 0
+            CMVideoFormatDescriptionGetH264ParameterSetAtIndex(
+                fmt, parameterSetIndex: 0, parameterSetPointerOut: nil,
+                parameterSetSizeOut: nil, parameterSetCountOut: &count, nalUnitHeaderLengthOut: &nalHeaderLen)
+            if keyframe {
+                for i in 0..<count {
+                    var ptr: UnsafePointer<UInt8>?
+                    var size = 0
+                    CMVideoFormatDescriptionGetH264ParameterSetAtIndex(
+                        fmt, parameterSetIndex: i, parameterSetPointerOut: &ptr,
+                        parameterSetSizeOut: &size, parameterSetCountOut: nil, nalUnitHeaderLengthOut: nil)
+                    if let ptr {
+                        out.append(contentsOf: [0, 0, 0, 1])
+                        out.append(ptr, count: size)
+                    }
                 }
             }
         }
 
-        var length = 0
-        var dataPtr: UnsafeMutablePointer<CChar>?
-        guard CMBlockBufferGetDataPointer(block, atOffset: 0, lengthAtOffsetOut: nil,
-                                          totalLengthOut: &length, dataPointerOut: &dataPtr) == noErr,
-              let dataPtr else { return }
+        // Copia a un Data contiguo: el CMBlockBuffer puede venir fragmentado y
+        // CMBlockBufferGetDataPointer solo da el primer tramo.
+        let length = CMBlockBufferGetDataLength(block)
+        var avcc = Data(count: length)
+        let copied = avcc.withUnsafeMutableBytes { raw -> OSStatus in
+            guard let base = raw.baseAddress else { return -1 }
+            return CMBlockBufferCopyDataBytes(block, atOffset: 0, dataLength: length, destination: base)
+        }
+        guard copied == noErr else { return }
 
-        // Cada NAL viene precedido de su longitud (4 bytes big-endian); se cambia por start code.
+        // Cada NAL viene precedido de su longitud (big-endian); se cambia por start code.
+        let n = Int(nalHeaderLen)
         var offset = 0
-        while offset + 4 <= length {
-            var nalLen: UInt32 = 0
-            memcpy(&nalLen, dataPtr + offset, 4)
-            nalLen = CFSwapInt32BigToHost(nalLen)
-            offset += 4
+        while offset + n <= length {
+            var nalLen = 0
+            for k in 0..<n { nalLen = (nalLen << 8) | Int(avcc[offset + k]) }
+            offset += n
+            guard nalLen > 0, offset + nalLen <= length else { break } // NAL truncado: se descarta el resto
             out.append(contentsOf: [0, 0, 0, 1])
-            out.append(UnsafeRawPointer(dataPtr + offset).assumingMemoryBound(to: UInt8.self), count: Int(nalLen))
-            offset += Int(nalLen)
+            out.append(avcc[offset..<offset + nalLen])
+            offset += nalLen
         }
         onEncoded?(out, keyframe, timestampUs)
     }
