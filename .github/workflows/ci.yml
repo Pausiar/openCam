@@ -105,9 +105,9 @@ jobs:
 
   ios:
     name: iOS (compilación del simulador)
-    # Aviso por ahora: falla hasta que exista ios/project.yml para xcodegen.
+    # macos-15 trae Xcode 16, que abre el formato de proyecto que genera xcodegen.
     continue-on-error: true
-    runs-on: macos-14
+    runs-on: macos-15
     steps:
       - uses: actions/checkout@v4
       - name: Instalar XcodeGen

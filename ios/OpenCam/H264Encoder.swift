@@ -44,7 +44,7 @@ final class H264Encoder {
             : nil
         VTCompressionSessionEncodeFrame(session, imageBuffer: pixelBuffer, presentationTimeStamp: pts,
                                         duration: .invalid, frameProperties: props,
-                                        infoFlags: nil) { [weak self] status, _, sample in
+                                        infoFlagsOut: nil) { [weak self] status, _, sample in
             guard status == noErr, let sample else { return }
             self?.emit(sample, timestampUs: timestampUs)
         }
