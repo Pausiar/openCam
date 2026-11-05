@@ -7,10 +7,11 @@ import android.os.Bundle
 import android.view.Surface
 
 /**
- * Codificador H.264 por hardware con entrada Surface (sin copias desde Camera2).
+ * Codificador H.264/H.265 por hardware con entrada Surface (sin copias desde Camera2).
  * Entrega unidades de acceso Annex-B; cada keyframe lleva SPS/PPS delante.
  */
 class H264Encoder(
+    private val mime: String,
     private val width: Int,
     private val height: Int,
     private val fps: Int,
@@ -26,27 +27,34 @@ class H264Encoder(
         private set
 
     fun start() {
-        val format = MediaFormat.createVideoFormat(MediaFormat.MIMETYPE_VIDEO_AVC, width, height).apply {
+        val format = MediaFormat.createVideoFormat(mime, width, height).apply {
             setInteger(MediaFormat.KEY_COLOR_FORMAT, MediaCodecInfo.CodecCapabilities.COLOR_FormatSurface)
             setInteger(MediaFormat.KEY_BIT_RATE, bitrateBps)
             setInteger(MediaFormat.KEY_FRAME_RATE, fps)
             setInteger(MediaFormat.KEY_I_FRAME_INTERVAL, 1)
             setInteger(MediaFormat.KEY_PRIORITY, 0) // tiempo real
             setInteger(MediaFormat.KEY_LATENCY, 1)
-            setInteger(MediaFormat.KEY_PROFILE, MediaCodecInfo.CodecProfileLevel.AVCProfileHigh)
+            if (mime == MediaFormat.MIMETYPE_VIDEO_AVC) {
+                setInteger(MediaFormat.KEY_PROFILE, MediaCodecInfo.CodecProfileLevel.AVCProfileHigh)
+            }
         }
-        val c = MediaCodec.createEncoderByType(MediaFormat.MIMETYPE_VIDEO_AVC)
+        val c = MediaCodec.createEncoderByType(mime)
+        codec = c // asignado ya para que stop() lo libere si configure falla
         c.configure(format, null, null, MediaCodec.CONFIGURE_FLAG_ENCODE)
         inputSurface = c.createInputSurface()
         c.start()
-        codec = c
 
         thread = Thread({ drainLoop(c) }, "opencam-h264-drain").apply { start() }
     }
 
     /** Pide un keyframe inmediato (KEYFRAME_REQUEST del escritorio). */
     fun requestKeyframe() {
-        codec?.setParameters(Bundle().apply { putInt(MediaCodec.PARAMETER_KEY_REQUEST_SYNC_FRAME, 0) })
+        runCatching { codec?.setParameters(Bundle().apply { putInt(MediaCodec.PARAMETER_KEY_REQUEST_SYNC_FRAME, 0) }) }
+    }
+
+    /** Cambia el bitrate en caliente, sin reiniciar el codificador. */
+    fun setBitrate(bitrateBps: Int) {
+        runCatching { codec?.setParameters(Bundle().apply { putInt(MediaCodec.PARAMETER_KEY_VIDEO_BITRATE, bitrateBps) }) }
     }
 
     fun stop() {
