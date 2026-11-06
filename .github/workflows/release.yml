@@ -125,7 +125,7 @@ jobs:
     # Sin cámara virtual en macOS: sólo salida Y4M (no hay filtro de cámara).
     name: Cliente de escritorio (macOS, sin cámara virtual; sólo salida Y4M)
     # Runner Apple Silicon: el binario es arm64 (no corre en Macs Intel).
-    runs-on: macos-14
+    runs-on: macos-15
     steps:
       - uses: actions/checkout@v4
       - uses: dtolnay/rust-toolchain@stable
@@ -168,7 +168,8 @@ jobs:
             exit 1
           fi
           mkdir -p android/keystore
-          echo "$KEYSTORE_B64" | base64 -d > android/keystore/opencam-release.p12
+          # Tolera espacios, saltos de línea, comillas y un prefijo NOMBRE= pegado por error.
+          printf '%s' "$KEYSTORE_B64" | sed -E 's/^[A-Z0-9_]+=//' | tr -d '[:space:]"' | base64 -d > android/keystore/opencam-release.p12
           printf 'storeFile=keystore/opencam-release.p12\nstorePassword=%s\nkeyAlias=%s\nkeyPassword=%s\n' "$STORE_PASSWORD" "$KEY_ALIAS" "$KEY_PASSWORD" > android/keystore.properties
       - name: Compilar APK firmada
         working-directory: android
