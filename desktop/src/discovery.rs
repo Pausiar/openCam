@@ -23,6 +23,15 @@ fn err(e: mdns_sd::Error) -> io::Error {
 
 /// Busca teléfonos durante `timeout` y devuelve los resueltos (sin duplicados por dirección).
 pub fn browse(timeout: Duration) -> io::Result<Vec<Found>> {
+    browse_until(timeout, false)
+}
+
+/// Como [`browse`], pero vuelve en cuanto resuelve el primer teléfono.
+pub fn browse_first(timeout: Duration) -> io::Result<Option<Found>> {
+    Ok(browse_until(timeout, true)?.into_iter().next())
+}
+
+fn browse_until(timeout: Duration, first_only: bool) -> io::Result<Vec<Found>> {
     let daemon = ServiceDaemon::new().map_err(err)?;
     let rx = daemon.browse(SERVICE_TYPE).map_err(err)?;
     let end = Instant::now() + timeout;
@@ -48,6 +57,9 @@ pub fn browse(timeout: Duration) -> io::Result<Vec<Found>> {
         };
         if !out.iter().any(|o| o.addr == f.addr) {
             out.push(f);
+            if first_only {
+                break;
+            }
         }
     }
     let _ = daemon.shutdown();

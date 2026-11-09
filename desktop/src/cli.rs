@@ -7,9 +7,12 @@ USO:
     opencam-desktop [DIRECCION] [OPCIONES]
 
 DIRECCION (o --addr):
-    host:puerto   móvil por Wi-Fi, o 127.0.0.1:4747 tras `adb forward tcp:4747 tcp:4747`
+    auto          busca solo: Android por USB (adb), iPhone por USB y luego Wi-Fi (mDNS)
+    usb           Android por USB; hace `adb forward` automáticamente
+    wifi          primer móvil anunciado por mDNS en la red local
     iphone        iPhone por USB (usbmuxd, macOS/Linux)
-    Por defecto: 127.0.0.1:4747
+    host:puerto   dirección fija, p. ej. 192.168.1.20:4747
+    Por defecto: auto
 
 OPCIONES:
     --addr <dir>       igual que el argumento posicional
@@ -21,8 +24,10 @@ OPCIONES:
     --sink <tipo>      v4l2 (Linux), windows o y4m [v4l2 en Linux, windows en Windows, y4m en macOS]
     --output <ruta>    archivo de salida de --sink y4m; `-` es stdout [-]
     --list             lista teléfonos (mDNS) e iPhones USB y sale
-    --discover         conecta al primer teléfono hallado por mDNS
-    --udid <udid>      elige el iPhone USB por UDID (con `iphone`)
+    --discover         igual que `wifi`
+    --udid <id>        elige el móvil USB: UDID del iPhone o número de serie de adb
+    --serial <id>      igual que --udid
+    --adb <ruta>       ruta de adb si no está en el PATH ni en el SDK de Android
     --no-reconnect     salir al perder la conexión en vez de reconectar
     -h, --help         muestra esta ayuda
 ";
@@ -60,12 +65,13 @@ pub struct Cli {
     pub list: bool,
     pub discover: bool,
     pub udid: Option<String>,
+    pub adb: Option<String>,
 }
 
 impl Default for Cli {
     fn default() -> Self {
         Self {
-            addr: "127.0.0.1:4747".into(),
+            addr: "auto".into(),
             device: "/dev/video10".into(),
             width: 1920,
             height: 1080,
@@ -77,6 +83,7 @@ impl Default for Cli {
             list: false,
             discover: false,
             udid: None,
+            adb: None,
         }
     }
 }
@@ -101,7 +108,8 @@ impl Cli {
                 "--no-reconnect" => cli.reconnect = false,
                 "--list" => cli.list = true,
                 "--discover" => cli.discover = true,
-                "--udid" => cli.udid = Some(value("--udid")?),
+                "--udid" | "--serial" => cli.udid = Some(value(&a)?),
+                "--adb" => cli.adb = Some(value("--adb")?),
                 "--output" => cli.output = value("--output")?,
                 "--sink" => {
                     cli.sink = match value("--sink")?.as_str() {
@@ -228,5 +236,10 @@ mod tests {
             (SinkKind::Y4m, "a.y4m", true, true)
         );
         assert_eq!(c.udid.as_deref(), Some("ABC"));
+        let c = parse(&["usb", "--serial", "R58M", "--adb", "/opt/adb"]).unwrap();
+        assert_eq!(
+            (c.addr.as_str(), c.udid.as_deref(), c.adb.as_deref()),
+            ("usb", Some("R58M"), Some("/opt/adb"))
+        );
     }
 }
