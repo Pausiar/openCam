@@ -29,6 +29,7 @@ class MainActivity : Activity() {
     private lateinit var fps: Spinner
     private lateinit var bitrate: Spinner
     private lateinit var lens: Spinner
+    private lateinit var advanced: AdvancedControls
 
     private lateinit var options: CameraInfo.Options
     private var settings = StreamConfig()
@@ -47,8 +48,10 @@ class MainActivity : Activity() {
         fps = findViewById(R.id.fps)
         bitrate = findViewById(R.id.bitrate)
         lens = findViewById(R.id.lens)
+        advanced = AdvancedControls(findViewById(R.id.advanced))
 
         settings = AppSettings.load(this)
+        AdvancedSettings.publish(AppSettings.withBasics(AdvancedSettings.current, settings))
         options = CameraInfo(getSystemService(Context.CAMERA_SERVICE) as CameraManager).options()
         setupSettings()
 
@@ -60,11 +63,13 @@ class MainActivity : Activity() {
     override fun onResume() {
         super.onResume()
         ConnectionState.listener = { runOnUiThread { refresh() } }
+        advanced.onResume { runOnUiThread(it) }
         refresh()
     }
 
     override fun onPause() {
         ConnectionState.listener = null
+        advanced.onPause()
         super.onPause()
     }
 
@@ -77,6 +82,7 @@ class MainActivity : Activity() {
             override fun onItemSelected(parent: AdapterView<*>?, view: View?, position: Int, id: Long) {
                 items.getOrNull(position)?.let(onPick)
                 AppSettings.save(this@MainActivity, settings)
+                if (!running) AdvancedSettings.publish(AppSettings.withBasics(AdvancedSettings.current, settings))
             }
 
             override fun onNothingSelected(parent: AdapterView<*>?) = Unit
@@ -129,6 +135,8 @@ class MainActivity : Activity() {
 
     private fun startStream() {
         AppSettings.save(this, settings)
+        // El servicio arranca con AdvancedSettings.current: calidad de aquí y zoom/enfoque de la sección avanzada.
+        AdvancedSettings.publish(AppSettings.withBasics(AdvancedSettings.current, settings))
         ContextCompat.startForegroundService(this, Intent(this, StreamService::class.java))
         ConnectionState.running = true
         refresh()

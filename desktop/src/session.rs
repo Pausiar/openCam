@@ -3,6 +3,8 @@
 //! flujo Y4M de `--output -`) y la interfaz gráfica lo muestra en la ventana.
 
 use std::io;
+use std::sync::mpsc::Receiver;
+use std::sync::Mutex;
 use std::thread::sleep;
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
@@ -11,7 +13,9 @@ use opencam_core::{Backoff, BitrateConfig, BitrateController, Metrics};
 
 use crate::cli::Cli;
 use crate::client::{self, Client, Sender};
+use crate::convert::mirror_yuyv;
 use crate::decoder::VideoDecoder;
+use crate::settings::{Command, LiveSettings};
 use crate::sink::FrameSink;
 use crate::transport;
 
@@ -79,12 +83,13 @@ pub enum End {
 
 /// Repite conectar + handshake + `serve` hasta un fin normal o fatal (o un único intento con
 /// `--no-reconnect`). El backoff se reinicia tras cada handshake correcto.
+/// Cada handshake pide los ajustes en vivo actuales (lo cambiado en vivo se conserva).
 pub fn run(
     cli: &Cli,
+    live: &Mutex<LiveSettings>,
     obs: &dyn Observer,
     mut serve: impl FnMut(&mut Client) -> End,
 ) -> io::Result<()> {
-    let config = cli.config_json();
     let seed = SystemTime::now()
         .duration_since(UNIX_EPOCH)
         .map_or(1, |d| d.as_nanos() as u64);
@@ -94,6 +99,7 @@ pub fn run(
             return Ok(());
         }
         obs.event(Event::Connecting(cli.addr.clone()));
+        let config = cli.config_json(&live.lock().unwrap_or_else(|e| e.into_inner()));
         let err = match transport::open(cli, &config, HANDSHAKE_TIMEOUT) {
             Ok(transport::Connected {
                 mut client,
@@ -157,7 +163,15 @@ fn looks_h265(au: &[u8]) -> bool {
 
 /// Recibe vídeo de una conexión ya negociada hasta que se pierda o falle el sink.
 /// Escala al tamaño del sink (letterbox) aunque el móvil mande otra resolución.
-pub fn serve(client: &mut Client, sink: &mut dyn FrameSink, cli: &Cli, obs: &dyn Observer) -> End {
+/// Las órdenes de `commands` (consola o ventana) actualizan `live` y se reenvían al móvil como CONFIG.
+pub fn serve(
+    client: &mut Client,
+    sink: &mut dyn FrameSink,
+    cli: &Cli,
+    live: &Mutex<LiveSettings>,
+    commands: Option<&Receiver<Command>>,
+    obs: &dyn Observer,
+) -> End {
     // Decodificador nuevo por conexión: espera el primer keyframe de la sesión.
     let mut decoder = match VideoDecoder::new(QUEUE_CAPACITY) {
         Ok(d) => d,
@@ -166,15 +180,31 @@ pub fn serve(client: &mut Client, sink: &mut dyn FrameSink, cli: &Cli, obs: &dyn
     let (w, h) = (cli.width as usize, cli.height as usize);
     let t0 = Instant::now();
     let mut metrics = Metrics::new(1000, 0);
+    let mut current = live.lock().unwrap_or_else(|e| e.into_inner()).clone();
     // Con los ajustes del móvil, el control de bitrate parte del que el móvil dice usar en CAPS.
     let initial = if cli.phone_settings {
-        caps_bitrate(&client.caps).unwrap_or(cli.bitrate_kbps)
+        caps_bitrate(&client.caps).unwrap_or(current.bitrate_kbps)
     } else {
-        cli.bitrate_kbps
+        current.bitrate_kbps
     };
     let mut bitrate = BitrateController::new(BitrateConfig::default(), initial);
     let (mut last_dropped, mut warned_h265) = (0u64, false);
     loop {
+        // shortcut: las órdenes se atienden al llegar mensajes; con vídeo eso es cada frame.
+        for cmd in commands.into_iter().flat_map(|rx| rx.try_iter()) {
+            let send = current.apply(cmd);
+            *live.lock().unwrap_or_else(|e| e.into_inner()) = current.clone();
+            if let Command::Bitrate(k) = cmd {
+                bitrate = BitrateController::new(BitrateConfig::default(), k);
+            }
+            obs.event(Event::Warning(format!("Ajuste aplicado: {cmd:?}")));
+            if send {
+                let json = cli.config_json(&current);
+                if let Err(e) = client.send(MsgType::Config, 0, json.as_bytes()) {
+                    return End::Lost(e);
+                }
+            }
+        }
         let msg = match client.recv() {
             Ok(_) | Err(_) if obs.should_stop() => return End::Done,
             Ok(m) => m,
@@ -192,8 +222,11 @@ pub fn serve(client: &mut Client, sink: &mut dyn FrameSink, cli: &Cli, obs: &dyn
                 let mut need_keyframe =
                     decoder.push_access_unit(msg.payload, msg.timestamp_us, keyframe);
                 match decoder.next_yuyv(w, h) {
-                    Ok(Some(yuyv)) => {
+                    Ok(Some(mut yuyv)) => {
                         metrics.on_decoded();
+                        if current.mirror {
+                            mirror_yuyv(&mut yuyv, w);
+                        }
                         obs.frame(&yuyv, w, h);
                         if let Err(e) = sink.write_yuyv(&yuyv) {
                             return End::Fatal(e);
@@ -300,7 +333,7 @@ mod tests {
             }
         });
         let mut served = 0;
-        run(&cli, &Stderr, |c| {
+        run(&cli, &Mutex::new(cli.live()), &Stderr, |c| {
             served += 1;
             loop {
                 match c.recv() {
@@ -324,7 +357,7 @@ mod tests {
             ..Cli::default()
         };
         drop(listener); // nadie escucha
-        assert!(run(&cli, &Stderr, |_| End::Done).is_err());
+        assert!(run(&cli, &Mutex::new(cli.live()), &Stderr, |_| End::Done).is_err());
     }
 
     #[derive(Clone, Default)]
@@ -433,7 +466,20 @@ mod tests {
 
         let out = Shared::default();
         let mut sink = crate::sink::Y4mSink::new(out.clone(), 1920, 1080, 30).unwrap();
-        assert!(run(&cli, &Stderr, |c| serve(c, &mut sink, &cli, &Stderr)).is_err()); // el móvil cierra: Lost sin reconexión
+        let live = Mutex::new(cli.live());
+        let (tx, rx) = std::sync::mpsc::channel();
+        tx.send(Command::Zoom(2.0)).unwrap();
+        tx.send(Command::Mirror(true)).unwrap();
+        assert!(run(&cli, &live, &Stderr, |c| serve(
+            c,
+            &mut sink,
+            &cli,
+            &live,
+            Some(&rx),
+            &Stderr
+        ))
+        .is_err());
+        assert_eq!(live.lock().unwrap().zoom, Some(2.0)); // el móvil cierra: Lost sin reconexión
         let stats = phone.join().unwrap();
         assert!(
             stats.contains(r#""target_bitrate_kbps":8000"#) && stats.contains("decoded_fps"),

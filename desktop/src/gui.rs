@@ -14,8 +14,9 @@ use eframe::egui::{self, Color32, RichText};
 use crate::cli::{Cli, SinkKind};
 use crate::client::Sender;
 use crate::discovery::{self, Found};
+use crate::prefs;
 use crate::session::{self, Event, Observer};
-use crate::settings;
+use crate::settings::{Command, Facing};
 
 const PORT: u16 = 4747;
 const PREVIEW_WIDTH: usize = 480;
@@ -215,6 +216,8 @@ pub struct App {
     found: Vec<Found>,
     discovery_msg: Option<String>,
     texture: Option<egui::TextureHandle>,
+    /// Órdenes en vivo (cámara, zoom, espejo...) hacia la sesión en marcha.
+    commands: Option<mpsc::Sender<Command>>,
 }
 
 impl App {
@@ -249,6 +252,7 @@ impl App {
             found: Vec::new(),
             discovery_msg: None,
             texture: None,
+            commands: None,
         }
     }
 
@@ -271,7 +275,7 @@ impl App {
 
     fn start(&mut self, ctx: &egui::Context) {
         let cfg = self.effective_cfg();
-        if let Err(e) = settings::save(&cfg) {
+        if let Err(e) = prefs::save(&cfg) {
             self.lock()
                 .log(format!("No se pudieron guardar los ajustes: {e}"));
         }
@@ -290,9 +294,14 @@ impl App {
             ctx: ctx.clone(),
             last_preview: Mutex::new(None),
         };
+        let (cmd_tx, cmd_rx) = mpsc::channel();
+        self.commands = Some(cmd_tx);
         self.worker = Some(thread::spawn(move || {
+            let live = Mutex::new(cfg.live());
             let result = crate::open_sink(&cfg).and_then(|mut sink| {
-                session::run(&cfg, &obs, |c| session::serve(c, &mut *sink, &cfg, &obs))
+                session::run(&cfg, &live, &obs, |c| {
+                    session::serve(c, &mut *sink, &cfg, &live, Some(&cmd_rx), &obs)
+                })
             });
             let stopped = obs.should_stop();
             obs.with(|s| {
@@ -520,6 +529,67 @@ impl App {
         ui.checkbox(&mut self.cfg.reconnect, "Reconectar si se corta");
     }
 
+    /// Envía una orden a la sesión en marcha (si la hay). Sin sesión, solo queda en `cfg`.
+    fn live(&self, cmd: Command) {
+        if let Some(tx) = &self.commands {
+            let _ = tx.send(cmd);
+        }
+    }
+
+    /// Ajustes de cámara que se cambian en vivo: también antes de conectar (van en CONFIG).
+    fn live_ui(&mut self, ui: &mut egui::Ui) {
+        ui.horizontal_wrapped(|ui| {
+            let adv = &mut self.cfg.advanced;
+            let mut sent = Vec::new();
+
+            ui.label("Cámara");
+            let facing_text = |f: Option<Facing>| match f {
+                None => "la del móvil",
+                Some(Facing::Back) => "trasera",
+                Some(Facing::Front) => "frontal",
+            };
+            egui::ComboBox::from_id_salt("facing")
+                .selected_text(facing_text(adv.facing))
+                .show_ui(ui, |ui| {
+                    for f in [Facing::Back, Facing::Front] {
+                        if ui
+                            .selectable_label(adv.facing == Some(f), facing_text(Some(f)))
+                            .clicked()
+                        {
+                            adv.facing = Some(f);
+                            sent.push(Command::Facing(f));
+                        }
+                    }
+                });
+
+            ui.add_space(8.0);
+            let mut zoom = adv.zoom.unwrap_or(1.0);
+            let r = ui.add(
+                egui::Slider::new(&mut zoom, 1.0..=8.0)
+                    .step_by(0.1)
+                    .text("zoom")
+                    .suffix("x"),
+            );
+            if r.changed() {
+                adv.zoom = Some(zoom);
+                sent.push(Command::Zoom(zoom));
+            }
+
+            ui.add_space(8.0);
+            let mut stab = adv.stabilization.unwrap_or(true);
+            if ui.checkbox(&mut stab, "Estabilización").changed() {
+                adv.stabilization = Some(stab);
+                sent.push(Command::Stabilization(stab));
+            }
+            if ui.checkbox(&mut adv.mirror, "Espejo").changed() {
+                sent.push(Command::Mirror(adv.mirror));
+            }
+            for cmd in sent {
+                self.live(cmd);
+            }
+        });
+    }
+
     fn status_ui(&mut self, ui: &mut egui::Ui, ctx: &egui::Context) {
         let (running, status, stats, caps, log) = {
             let s = self.lock();
@@ -576,6 +646,9 @@ impl App {
                 self.start(ctx);
             }
         }
+
+        ui.add_space(8.0);
+        self.live_ui(ui);
 
         if let Some((fps, rtt, dropped, kbps)) = stats {
             ui.add_space(6.0);
@@ -642,6 +715,7 @@ impl eframe::App for App {
             if let Some(w) = self.worker.take() {
                 let _ = w.join();
             }
+            self.commands = None;
         }
         egui::Panel::left("ajustes")
             .resizable(false)
@@ -657,7 +731,7 @@ impl eframe::App for App {
     }
 
     fn on_exit(&mut self, _gl: Option<&eframe::glow::Context>) {
-        let _ = settings::save(&self.effective_cfg());
+        let _ = prefs::save(&self.effective_cfg());
         self.stop();
     }
 }
@@ -671,7 +745,7 @@ pub fn run() -> io::Result<()> {
         },
         ..Cli::default()
     };
-    let cfg = settings::load(base);
+    let cfg = prefs::load(base);
     let options = eframe::NativeOptions {
         viewport: egui::ViewportBuilder::default()
             .with_title("OpenCam")

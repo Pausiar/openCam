@@ -33,6 +33,26 @@ cargo build
 cargo test
 ```
 
+## Ajustes avanzados de vídeo
+
+Al arrancar:
+
+```bash
+opencam-desktop 127.0.0.1:4747 --bitrate 6000 --camera frontal --zoom 1.5 \
+    --focus auto --stabilization on --mirror
+```
+
+`--camera`, `--zoom`, `--focus` y `--stabilization` solo se envían si los indicas; si no, el móvil mantiene lo elegido en su pantalla. `--mirror` voltea la imagen en el PC. `--codec` admite de momento solo `h264`, porque el escritorio aún no decodifica H.265.
+
+En vivo, escribe en la consola y pulsa Intro (se desactiva con `--no-controls`):
+
+```text
+zoom 2            enfoque auto | enfoque 0.4     estabilizacion on|off
+camara frontal    espejo on|off                  bitrate 6000           ayuda
+```
+
+Los cambios de zoom, enfoque, estabilización y bitrate se aplican sin cortar el vídeo; cambiar de cámara reinicia la captura en el móvil (un par de frames). Lo cambiado se conserva si la conexión se reconecta.
+
 ## Windows: cámara virtual DirectShow
 
 Dos piezas:

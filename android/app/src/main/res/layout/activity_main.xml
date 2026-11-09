@@ -142,6 +142,8 @@
                 android:alpha="0.7"
                 android:textSize="13sp"
                 android:text="Se aplican al iniciar. Si en el PC eliges otra calidad, manda la del PC; marca allí «Usar la calidad elegida en el móvil» para usar estos ajustes." />
+
+            <include layout="@layout/advanced_settings" />
         </LinearLayout>
     </ScrollView>
 </LinearLayout>

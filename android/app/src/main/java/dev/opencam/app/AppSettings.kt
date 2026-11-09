@@ -28,6 +28,15 @@ object AppSettings {
             .apply()
     }
 
+    /** `cfg` con la resolución, fps, bitrate y lente de `basics`; conserva zoom, enfoque, etc. */
+    fun withBasics(cfg: StreamConfig, basics: StreamConfig): StreamConfig = cfg.copy(
+        width = basics.width,
+        height = basics.height,
+        fps = basics.fps,
+        bitrateKbps = basics.bitrateKbps,
+        lens = basics.lens,
+    )
+
     /** Calidades ofrecidas en la app: (etiqueta, kbps). */
     val BITRATES = listOf(
         "Baja (2 Mbps)" to 2000,

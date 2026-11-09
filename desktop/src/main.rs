@@ -8,6 +8,7 @@ mod convert;
 mod decoder;
 mod discovery;
 mod gui;
+mod prefs;
 mod session;
 mod settings;
 mod sink;
@@ -20,10 +21,13 @@ mod transport;
 mod usbmuxd;
 
 use std::env;
-use std::io;
+use std::io::{self, BufRead};
+use std::sync::mpsc::{self, Receiver};
+use std::sync::Mutex;
 use std::time::Duration;
 
 use cli::{Cli, CliError, SinkKind};
+use settings::Command;
 use sink::FrameSink;
 
 /// La app de Windows no tiene consola propia; en modo CLI usa la de quien la lanzó.
@@ -66,10 +70,33 @@ fn main() -> io::Result<()> {
     }
 
     let mut sink = open_sink(&cli)?;
+    let live = Mutex::new(cli.live());
+    let commands = cli.controls.then(spawn_console);
     let obs = session::Stderr;
-    session::run(&cli, &obs, |client| {
-        session::serve(client, &mut *sink, &cli, &obs)
+    session::run(&cli, &live, &obs, |client| {
+        session::serve(client, &mut *sink, &cli, &live, commands.as_ref(), &obs)
     })
+}
+
+/// Lee órdenes en vivo (zoom, enfoque...) de stdin. stdout puede ser el Y4M; stdin queda libre.
+fn spawn_console() -> Receiver<Command> {
+    let (tx, rx) = mpsc::channel();
+    eprintln!("Escribe `ayuda` y pulsa Intro para ver los ajustes en vivo.");
+    std::thread::spawn(move || {
+        for line in io::stdin().lock().lines() {
+            let Ok(line) = line else { break };
+            match Command::parse(&line) {
+                Ok(Some(cmd)) => {
+                    if tx.send(cmd).is_err() {
+                        break;
+                    }
+                }
+                Ok(None) => {}
+                Err(msg) => eprintln!("{msg}"),
+            }
+        }
+    });
+    rx
 }
 
 fn list() -> io::Result<()> {
