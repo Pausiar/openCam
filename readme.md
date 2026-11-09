@@ -72,8 +72,9 @@ Abre **OpenCam** en el ordenador (en Windows, desde el acceso directo del instal
 1. **Conexión**: *Automática* (prueba USB y luego Wi-Fi), *Wi-Fi* (escribe la IP que muestra el móvil o pulsa *Buscar móviles en la red*), *Android por USB* (depuración USB activada y adb instalado) o *iPhone por USB* (macOS y Linux).
 2. **Vídeo**: resolución de la cámara virtual, fps y calidad, o marca *Usar la calidad elegida en el móvil*.
 3. **Salida**: cámara virtual, archivo Y4M o solo vista previa.
-4. Pulsa **Conectar**. Verás el estado, los fps, la latencia y una vista previa, y podrás cambiar en vivo la cámara (frontal o trasera), el zoom, la estabilización y el modo espejo.
-5. En Zoom, Meet, OBS… elige **OpenCam Virtual Camera** (Windows) u **OpenCam** (Linux).
+4. La primera vez, escribe en **Código de emparejamiento** los 6 dígitos que muestra el móvil; después el PC queda emparejado y la conexión va cifrada.
+5. Pulsa **Conectar**. Verás el estado, los fps, la latencia y una vista previa, y podrás cambiar en vivo la cámara (frontal o trasera), el zoom, la estabilización y el modo espejo.
+6. En Zoom, Meet, OBS… elige **OpenCam Virtual Camera** (Windows) u **OpenCam** (Linux).
 
 <details>
 <summary><b>Linux: crea antes la cámara virtual</b></summary>

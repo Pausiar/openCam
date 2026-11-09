@@ -76,6 +76,8 @@ struct Shared {
     stats: Option<Stats>,
     log: VecDeque<String>,
     preview: Option<Preview>,
+    /// El último intento falló por el emparejamiento: hay que escribir el código del móvil.
+    need_code: bool,
 }
 
 impl Shared {
@@ -208,6 +210,8 @@ pub struct App {
     cfg: Cli,
     mode: Mode,
     wifi_addr: String,
+    /// Código de emparejamiento que muestra el móvil (solo hace falta la primera vez).
+    code: String,
     shared: Arc<Mutex<Shared>>,
     stop: Arc<AtomicBool>,
     tx: Arc<Mutex<Option<Sender>>>,
@@ -237,6 +241,7 @@ impl App {
             cfg,
             mode,
             wifi_addr,
+            code: String::new(),
             shared: Arc::new(Mutex::new(Shared {
                 running: false,
                 status: Status::Idle,
@@ -244,6 +249,7 @@ impl App {
                 stats: None,
                 log: VecDeque::new(),
                 preview: None,
+                need_code: false,
             })),
             stop: Arc::new(AtomicBool::new(false)),
             tx: Arc::new(Mutex::new(None)),
@@ -274,7 +280,16 @@ impl App {
     }
 
     fn start(&mut self, ctx: &egui::Context) {
-        let cfg = self.effective_cfg();
+        let mut cfg = self.effective_cfg();
+        let code = self.code.trim();
+        if !code.is_empty() {
+            if opencam_core::secure::normalize_code(code).is_err() {
+                self.lock().status =
+                    Status::Error("El código son los 6 dígitos que muestra el móvil".into());
+                return;
+            }
+            cfg.code = Some(code.to_string());
+        }
         if let Err(e) = prefs::save(&cfg) {
             self.lock()
                 .log(format!("No se pudieron guardar los ajustes: {e}"));
@@ -283,6 +298,7 @@ impl App {
         {
             let mut s = self.lock();
             s.running = true;
+            s.need_code = false;
             s.status = Status::Connecting(cfg.addr.clone());
             s.stats = None;
             s.preview = None;
@@ -308,7 +324,13 @@ impl App {
                 s.running = false;
                 s.stats = None;
                 s.status = match result {
-                    Err(e) if !stopped => Status::Error(sink_hint(&cfg, e)),
+                    Err(e) if !stopped => match crate::client::PairingError::from_io(&e) {
+                        Some(p) => {
+                            s.need_code = true;
+                            Status::Error(pairing_text(p))
+                        }
+                        None => Status::Error(sink_hint(&cfg, e)),
+                    },
                     _ => Status::Idle,
                 };
             });
@@ -416,6 +438,25 @@ impl App {
                 );
             }
         }
+
+        ui.add_space(8.0);
+        let need_code = self.lock().need_code;
+        let label = RichText::new("Código de emparejamiento");
+        ui.label(if need_code {
+            label.strong().color(Color32::from_rgb(230, 170, 30))
+        } else {
+            label
+        });
+        ui.add(
+            egui::TextEdit::singleline(&mut self.code)
+                .hint_text("123 456")
+                .desired_width(120.0),
+        );
+        ui.label(
+            RichText::new("Solo la primera vez: lo muestra la app del móvil al iniciar.")
+                .small()
+                .weak(),
+        );
 
         ui.add_space(12.0);
         ui.heading("Vídeo");
@@ -696,6 +737,20 @@ impl App {
     }
 }
 
+/// Mensaje para la ventana (los de `PairingError` hablan de `--code`).
+fn pairing_text(e: &crate::client::PairingError) -> String {
+    use crate::client::PairingError as P;
+    match e {
+        P::NeedCode => "El móvil pide emparejar: escribe el código que muestra y pulsa Conectar".into(),
+        P::BadCode => "Código incorrecto: revisa el que muestra el móvil".into(),
+        P::KeyMismatch => {
+            "El emparejamiento guardado no coincide: escribe el código del móvil para emparejar de nuevo"
+                .into()
+        }
+        other => other.to_string(),
+    }
+}
+
 /// Añade una pista al error más común de cada salida.
 fn sink_hint(cfg: &Cli, e: io::Error) -> String {
     match cfg.sink {
@@ -710,6 +765,9 @@ impl eframe::App for App {
     fn ui(&mut self, ui: &mut egui::Ui, _frame: &mut eframe::Frame) {
         let ctx = ui.ctx().clone();
         self.poll_discovery();
+        if matches!(self.lock().status, Status::Connected(_)) {
+            self.code.clear(); // ya emparejado: la clave queda guardada
+        }
         let running = self.lock().running;
         if !running {
             if let Some(w) = self.worker.take() {

@@ -15,6 +15,7 @@ import android.widget.ArrayAdapter
 import android.widget.Button
 import android.widget.Spinner
 import android.widget.TextView
+import android.widget.Toast
 import androidx.core.app.ActivityCompat
 import androidx.core.content.ContextCompat
 
@@ -25,6 +26,9 @@ class MainActivity : Activity() {
     private lateinit var wifi: TextView
     private lateinit var device: TextView
     private lateinit var usb: TextView
+    private lateinit var pairing: TextView
+    private lateinit var pairingLabel: TextView
+    private lateinit var forget: Button
     private lateinit var resolution: Spinner
     private lateinit var fps: Spinner
     private lateinit var bitrate: Spinner
@@ -44,6 +48,13 @@ class MainActivity : Activity() {
         wifi = findViewById(R.id.wifi)
         device = findViewById(R.id.device)
         usb = findViewById(R.id.usb)
+        pairing = findViewById(R.id.pairing)
+        pairingLabel = findViewById(R.id.pairing_label)
+        forget = findViewById(R.id.forget)
+        forget.setOnClickListener {
+            PrefsPairingKeys(applicationContext).clear()
+            Toast.makeText(this, "Ordenadores olvidados: tendrán que usar el código otra vez", Toast.LENGTH_LONG).show()
+        }
         resolution = findViewById(R.id.resolution)
         fps = findViewById(R.id.fps)
         bitrate = findViewById(R.id.bitrate)
@@ -157,6 +168,13 @@ class MainActivity : Activity() {
             else -> "Esperando al ordenador…"
         }
         listOf(resolution, fps, bitrate, lens).forEach { it.isEnabled = !running }
+        forget.isEnabled = !running
+
+        // Código de emparejamiento: el PC lo pide solo la primera vez.
+        val code = ConnectionState.pairingCode?.takeIf { running && !ConnectionState.connected }
+        pairing.visibility = if (code != null) View.VISIBLE else View.GONE
+        pairingLabel.visibility = pairing.visibility
+        pairing.text = code?.let { "${it.take(3)} ${it.drop(3)}" } ?: ""
 
         val port = Opcm.DEFAULT_PORT
         val addrs = NetInfo.addresses(this)

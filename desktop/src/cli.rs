@@ -41,12 +41,18 @@ OPCIONES:
     --udid <id>        elige el móvil USB: UDID del iPhone o número de serie de adb
     --serial <id>      igual que --udid
     --adb <ruta>       ruta de adb si no está en el PATH ni en el SDK de Android
+    --code <código>    código de 6 dígitos que muestra el móvil (solo la primera vez)
     --no-reconnect     salir al perder la conexión en vez de reconectar
     --gui              abre la interfaz gráfica (lo mismo que sin argumentos)
     -h, --help         muestra esta ayuda
 
 Mientras transmite, escribe `ayuda` en la consola para ver las órdenes en vivo.
 ";
+
+/// Límites de los ajustes: evitan pedir al móvil valores absurdos (8K, 240 fps, 200 Mbps).
+pub const MAX_DIMENSION: u32 = 7680;
+pub const MAX_FPS: u32 = 240;
+pub const MAX_BITRATE_KBPS: u32 = 200_000;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum SinkKind {
@@ -93,6 +99,8 @@ pub struct Cli {
     pub udid: Option<String>,
     pub adb: Option<String>,
     pub gui: bool,
+    /// Código de emparejamiento tecleado (`--code`).
+    pub code: Option<String>,
 }
 
 impl Default for Cli {
@@ -117,6 +125,7 @@ impl Default for Cli {
             udid: None,
             adb: None,
             gui: false,
+            code: None,
         }
     }
 }
@@ -192,6 +201,15 @@ impl Cli {
                 "--discover" => cli.discover = true,
                 "--udid" | "--serial" => cli.udid = Some(value(&a)?),
                 "--adb" => cli.adb = Some(value("--adb")?),
+                "--code" => {
+                    let c = value("--code")?;
+                    opencam_core::secure::normalize_code(&c).map_err(|_| {
+                        CliError::Invalid(
+                            "--code necesita los 6 dígitos que muestra el móvil".into(),
+                        )
+                    })?;
+                    cli.code = Some(c);
+                }
                 "--output" => cli.output = value("--output")?,
                 "--sink" => {
                     cli.sink = match value("--sink")?.as_str() {
@@ -209,9 +227,18 @@ impl Cli {
                 "--addr" => cli.addr = value("--addr")?,
                 "--device" => cli.device = value("--device")?,
                 "--width" | "--height" | "--fps" | "--bitrate" => {
-                    let n: u32 = value(&a)?.parse().ok().filter(|n| *n > 0).ok_or_else(|| {
-                        CliError::Invalid(format!("{a} necesita un entero positivo"))
-                    })?;
+                    let max = match a.as_str() {
+                        "--width" | "--height" => MAX_DIMENSION,
+                        "--fps" => MAX_FPS,
+                        _ => MAX_BITRATE_KBPS,
+                    };
+                    let n: u32 = value(&a)?
+                        .parse()
+                        .ok()
+                        .filter(|n| (1..=max).contains(n))
+                        .ok_or_else(|| {
+                            CliError::Invalid(format!("{a} necesita un entero entre 1 y {max}"))
+                        })?;
                     match a.as_str() {
                         "--width" => cli.width = n,
                         "--height" => cli.height = n,
@@ -384,5 +411,40 @@ mod tests {
         assert!(c.phone_settings && c.gui);
         assert_eq!(c.sink, SinkKind::None);
         assert_eq!(c.config_json(&c.live()), r#"{"codec":"h264"}"#);
+    }
+
+    #[test]
+    fn pairing_code() {
+        assert_eq!(
+            parse(&["--code", "123 456"]).unwrap().code.as_deref(),
+            Some("123 456")
+        );
+        assert!(matches!(
+            parse(&["--code", "12345"]),
+            Err(CliError::Invalid(_))
+        ));
+        assert!(matches!(parse(&["--code"]), Err(CliError::Invalid(_))));
+        assert_eq!(parse(&[]).unwrap().code, None);
+    }
+
+    #[test]
+    fn rejects_out_of_range_numbers() {
+        assert!(matches!(parse(&["--fps", "-1"]), Err(CliError::Invalid(_))));
+        for (opt, max) in [
+            ("--width", MAX_DIMENSION),
+            ("--height", MAX_DIMENSION),
+            ("--fps", MAX_FPS),
+            ("--bitrate", MAX_BITRATE_KBPS),
+        ] {
+            assert!(parse(&[opt, &max.to_string()]).is_ok());
+            assert!(matches!(
+                parse(&[opt, &(max + 1).to_string()]),
+                Err(CliError::Invalid(_))
+            ));
+        }
+        assert!(matches!(
+            parse(&["--width", "99999999999"]),
+            Err(CliError::Invalid(_))
+        ));
     }
 }

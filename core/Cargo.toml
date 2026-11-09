@@ -6,6 +6,12 @@ description = "Núcleo compartido de OpenCam: protocolo OPCM, cola de frames y m
 license = "MIT"
 
 [dependencies]
+aes-gcm = "0.10"
+getrandom = "0.2"
+hkdf = "0.12"
+hmac = "0.12"
+p256 = { version = "0.13", default-features = false, features = ["ecdh", "std"] }
+sha2 = "0.10"
 
 [lib]
 name = "opencam_core"

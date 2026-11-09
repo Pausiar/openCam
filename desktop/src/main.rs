@@ -8,6 +8,7 @@ mod convert;
 mod decoder;
 mod discovery;
 mod gui;
+mod pairing;
 mod prefs;
 mod session;
 mod settings;

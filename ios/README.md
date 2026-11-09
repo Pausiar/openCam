@@ -19,7 +19,9 @@ La cámara no funciona en el simulador. iOS 15+, solo iPhone.
 - `OpenCam/OPCM.swift`: cabecera de 24 bytes big-endian y tipos de mensaje (incluye STATS 0x22).
 - `OpenCam/OpcmServer.swift`: servidor TCP (Network.framework) con anuncio Bonjour `_opencam._tcp`
   (TXT `platform=ios`, `name`), HELLO/CAPS, CONFIG, STATS, PING/PONG y ERROR `unsupported_version`.
-  Un cliente a la vez.
+  Un cliente activo; una conexión nueva solo lo sustituye tras autenticarse.
+- `OpenCam/Secure.swift`: emparejamiento por código y cifrado AES-GCM (CryptoKit); claves de los PCs
+  emparejados en el llavero (solo este dispositivo). Ver «Seguridad» en `docs/PROTOCOL.md`.
 - `OpenCam/H264Encoder.swift`: VideoToolbox H.264 en Annex-B; soporta CMBlockBuffer no contiguo y
   cambio de bitrate en caliente.
 - `OpenCam/CameraStreamer.swift`: captura AVFoundation. La sesión se configura una sola vez (Parar y

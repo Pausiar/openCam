@@ -50,6 +50,14 @@ final class CameraStreamer: NSObject, AVCaptureVideoDataOutputSampleBufferDelega
         try server.start()
     }
 
+    /// Código de emparejamiento que la UI debe mostrar (el PC lo pide la primera vez).
+    var pairingCode: String { server.pairingCode }
+    /// Se llama (fuera del hilo principal) cuando cambia el código.
+    var onPairingCodeChanged: ((String) -> Void)? {
+        get { server.onPairingCodeChanged }
+        set { server.onPairingCodeChanged = newValue }
+    }
+
     func stop() {
         server.stop()
         queue.async { [weak self] in self?.stopCapture() }

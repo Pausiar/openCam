@@ -17,6 +17,7 @@ struct ContentView: View {
     @State private var running = false
     @State private var connected = false
     @State private var error: String?
+    @State private var code: String?
     @State private var settings = StreamSettings.load()
     @State private var addresses: [NetAddress] = []
     private let resolutions = CameraStreamer.supportedResolutions().map { $0[0] }
@@ -28,6 +29,14 @@ struct ContentView: View {
                     HStack {
                         Circle().fill(statusColor).frame(width: 10, height: 10)
                         Text(statusText)
+                    }
+                    if running, !connected, let code {
+                        VStack(alignment: .leading, spacing: 4) {
+                            Text("Código de emparejamiento (escríbelo en el PC la primera vez)")
+                                .font(.footnote).foregroundStyle(.secondary)
+                            Text("\(String(code.prefix(3))) \(String(code.suffix(3)))")
+                                .font(.system(size: 40, weight: .bold, design: .monospaced))
+                        }
                     }
                     if let error { Text(error).foregroundStyle(.red).font(.footnote) }
                     Button(running ? "Parar" : "Iniciar") { running ? stop() : start() }
@@ -88,6 +97,8 @@ struct ContentView: View {
         streamer.settings = settings
         do {
             try streamer.start()
+            code = streamer.pairingCode
+            streamer.onPairingCodeChanged = { c in DispatchQueue.main.async { code = c } }
             UIApplication.shared.isIdleTimerDisabled = true // la pantalla no debe bloquearse mientras se emite
             running = true
             error = nil
