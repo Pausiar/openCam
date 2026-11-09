@@ -22,33 +22,38 @@ Las apps compiladas se publican en las [releases de GitHub](https://github.com/P
 
 ## Uso rápido
 
-### Android
+### En el móvil
 
-1. Instala la APK y permite instalar desde fuentes desconocidas.
-2. Abre OpenCam y pulsa **Iniciar**.
-3. Por USB, ejecuta `adb forward tcp:4747 tcp:4747` y conecta el escritorio a `127.0.0.1:4747`. Por Wi-Fi, usa la IP del móvil en el puerto 4747.
+1. Instala la APK (Android) y permite instalar desde fuentes desconocidas. En iPhone, compila la app desde `ios/` con XcodeGen y Xcode (no hay descarga).
+2. Abre OpenCam. La pantalla muestra los **datos para el PC**: la IP y el puerto (`192.168.1.20:4747`), el nombre del móvil y cómo conectar por USB.
+3. Elige resolución, fotogramas por segundo, calidad y cámara, y pulsa **Iniciar**. Los ajustes se guardan.
 
-### iPhone (solo Linux, por ahora)
+### En el ordenador
 
-1. Compila la app desde `ios/` con XcodeGen y Xcode, en un Mac con tu firma de Apple. No hay descarga.
-2. Abre la app en primer plano y pulsa **Iniciar**. iOS no captura cámara en segundo plano.
-3. Conecta por USB con usbmuxd instalado: `opencam-desktop iphone --device /dev/video10`.
+1. Abre **OpenCam** (sin argumentos se abre la ventana; en Windows, desde el acceso directo que deja el instalador).
+2. Elige cómo conectar: **Automática** (USB y luego Wi-Fi), **Wi-Fi** (escribe la IP que muestra el móvil o pulsa *Buscar móviles en la red*), **Android por USB** (con la depuración USB activada y adb instalado) o **iPhone por USB** (macOS y Linux).
+3. Elige la resolución de la cámara virtual, los fps y la calidad, o marca **Usar la calidad elegida en el móvil**.
+4. Pulsa **Conectar**. La ventana muestra el estado, los fps, la latencia y una vista previa.
+5. En la app de vídeo, elige la cámara: **OpenCam Virtual Camera** en Windows o `/dev/video10` en Linux. En macOS aún no hay cámara virtual: la ventana muestra la vista previa y puede grabar a Y4M.
 
-### Linux
+En Linux, carga antes el módulo de la cámara virtual:
 
 ```bash
 sudo modprobe v4l2loopback video_nr=10 card_label="OpenCam" exclusive_caps=1
-cd desktop
-cargo run --release -- --addr 127.0.0.1:4747 --device /dev/video10
 ```
 
-Las opciones completas están en `opencam-desktop --help`.
+### Línea de órdenes
 
-### Windows
+Con argumentos, `opencam-desktop` funciona como antes, sin ventana:
 
-1. Instala `opencam-setup-windows-x86_64.exe`. Copia el cliente y la cámara virtual, y la registra.
-2. Arranca el cliente con la dirección del móvil (`127.0.0.1:4747` con `adb forward`).
-3. En la app que use la cámara, elige **OpenCam Virtual Camera**.
+```bash
+opencam-desktop                                  # ventana
+opencam-desktop auto --device /dev/video10       # busca el móvil (USB y Wi-Fi)
+opencam-desktop 192.168.1.20:4747 --fps 60       # dirección fija
+opencam-desktop usb --phone-settings             # usa la calidad elegida en el móvil
+```
+
+Las opciones completas están en `opencam-desktop --help`. iOS no captura cámara en segundo plano: deja la app del iPhone en primer plano.
 
 ## Compilar y probar
 
