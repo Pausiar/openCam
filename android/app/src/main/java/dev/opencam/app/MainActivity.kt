@@ -82,10 +82,17 @@ class MainActivity : Activity() {
     private fun refresh() {
         toggle.text = if (running) "Detener" else "Iniciar"
         status.text = when {
-            !running -> "Parado. Conecta el PC con adb forward tcp:4747 tcp:4747"
+            !running -> "Parado. Pulsa Iniciar y abre OpenCam en el ordenador: " +
+                "te encontrará solo por USB (con depuración USB) o por la Wi-Fi."
             ConnectionState.connected -> "Conectado al ordenador"
-            else -> "Esperando al ordenador en el puerto ${Opcm.DEFAULT_PORT}"
+            else -> waitingText()
         }
+    }
+
+    private fun waitingText(): String {
+        val ip = NetInfo.localIpv4(this)
+        val wifi = if (ip != null) "Wi-Fi: $ip:${Opcm.DEFAULT_PORT}" else "Wi-Fi: sin red local"
+        return "Esperando al ordenador…\nUSB: automático (depuración USB activada)\n$wifi"
     }
 
     companion object {

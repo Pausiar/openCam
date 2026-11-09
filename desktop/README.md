@@ -81,7 +81,7 @@ Las apps de 32 bits necesitan una DLL de 32 bits registrada con `C:\Windows\SysW
 Después, arranca el cliente y elige **OpenCam Virtual Camera** en la app que use la cámara:
 
 ```powershell
-cargo run --release -- 127.0.0.1:4747
+cargo run --release
 ```
 
 En Windows `--device` se ignora.
@@ -104,14 +104,15 @@ En Windows `--device` se ignora.
 sudo modprobe v4l2loopback video_nr=10 card_label="OpenCam" exclusive_caps=1
 ```
 
-## Uso con el móvil por USB
+## Conectar con el móvil (USB o Wi-Fi)
 
 ```bash
-adb forward tcp:4747 tcp:4747
-cargo run -- 127.0.0.1:4747 --device /dev/video10
+cargo run -- --device /dev/video10            # auto: USB (adb) y luego Wi-Fi (mDNS)
+cargo run -- usb --device /dev/video10        # solo Android por USB
+cargo run -- 192.168.1.20:4747 --device /dev/video10
 ```
 
-El argumento es la dirección del móvil; `--device` el v4l2loopback. Opciones: `--sink v4l2|windows|y4m` (y4m por defecto en macOS, con `--output archivo` o `-` para stdout), `--list` y `--discover` (mDNS), `--udid` (iPhone USB), `--width/--height/--fps/--bitrate`, `--no-reconnect`; ver `--help`. El escritorio envía STATS cada segundo y solo decodifica H.264.
+El argumento es cómo llegar al móvil: `auto` (por defecto), `usb`, `wifi`, `iphone` o `host:puerto`. Con `auto` prueba Android por USB (busca `adb` en el PATH, `ANDROID_HOME`, el SDK de Android o junto al ejecutable, y crea el `adb forward` solo), luego iPhone por USB y por último el primer móvil anunciado por mDNS; en cada reconexión vuelve a buscar; `--device` el v4l2loopback. Opciones: `--sink v4l2|windows|y4m` (y4m por defecto en macOS, con `--output archivo` o `-` para stdout), `--list` y `--discover` (mDNS), `--udid`/`--serial` (elige el móvil USB), `--adb <ruta>`, `--width/--height/--fps/--bitrate`, `--no-reconnect`; ver `--help`. El escritorio envía STATS cada segundo y solo decodifica H.264.
 
 ### iPhone por USB (macOS/Linux)
 

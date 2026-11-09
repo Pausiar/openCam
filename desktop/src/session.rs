@@ -11,13 +11,13 @@ use opencam_core::protocol::MsgType;
 use opencam_core::{Backoff, BitrateConfig, BitrateController, Metrics};
 
 use crate::cli::Cli;
-use crate::client::{self, handshake, Client};
+use crate::client::{self, Client};
 use crate::convert::mirror_yuyv;
 use crate::decoder::VideoDecoder;
 use crate::settings::{Command, LiveSettings};
 use crate::sink::FrameSink;
+use crate::transport;
 
-const CONNECT_TIMEOUT: Duration = Duration::from_secs(5);
 const HANDSHAKE_TIMEOUT: Duration = Duration::from_secs(5);
 const QUEUE_CAPACITY: usize = 4;
 
@@ -30,21 +30,6 @@ pub enum End {
     Lost(io::Error),
     /// Error local (p. ej. la cámara virtual): reconectar no lo arregla.
     Fatal(io::Error),
-}
-
-fn connect(cli: &Cli) -> io::Result<Client> {
-    if cli.addr == "iphone" {
-        #[cfg(unix)]
-        return Client::from_stream(Box::new(crate::usbmuxd::connect_iphone_with(
-            4747,
-            cli.udid.as_deref(),
-        )?));
-        #[cfg(not(unix))]
-        return Err(io::Error::other(
-            "`iphone` solo está disponible en macOS y Linux",
-        ));
-    }
-    Client::connect(cli.addr.as_str(), CONNECT_TIMEOUT)
 }
 
 /// Repite conectar + handshake + `serve` hasta un fin normal o fatal (o un único intento con
@@ -61,14 +46,14 @@ pub fn run(
     let mut backoff = Backoff::new(500, 5000, 20, seed);
     loop {
         let config = cli.config_json(&live.lock().unwrap());
-        let attempt = connect(cli).and_then(|mut c| {
-            let caps = handshake(&mut c, &config, HANDSHAKE_TIMEOUT)?;
-            Ok((c, caps))
-        });
-        let err = match attempt {
-            Ok((mut client, caps)) => {
+        let err = match transport::open(cli, &config, HANDSHAKE_TIMEOUT) {
+            Ok(transport::Connected {
+                mut client,
+                caps,
+                via,
+            }) => {
                 backoff.reset();
-                eprintln!("Conectado a {}. CAPS: {caps}", cli.addr);
+                eprintln!("Conectado por {via}. CAPS: {caps}");
                 if caps.contains("h265") {
                     eprintln!("Aviso: el móvil anuncia h265; este escritorio solo decodifica H.264 y lo pide en CONFIG.");
                 }
