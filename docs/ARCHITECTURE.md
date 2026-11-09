@@ -37,7 +37,7 @@ flowchart LR
 
 | Móvil / Transporte | USB | Wi-Fi | Bluetooth |
 |---|---|---|---|
-| Android | `adb forward` (sin root) | Sí | RFCOMM, 480p-720p, 15-24 fps (Fase 4, pendiente) |
+| Android | `adb forward` automático desde el escritorio (`adb.rs`, sin root) | Sí | RFCOMM, 480p-720p, 15-24 fps (Fase 4, pendiente) |
 | iPhone | usbmuxd (sin jailbreak) | Sí (Bonjour) | Solo BLE para control; sin vídeo (pendiente) |
 
 ## Límites a documentar
@@ -78,7 +78,7 @@ Leyenda:
 | Protocolo OPCM v1 | Hecho | `core/`: 29 tests pasan. Cabecera, tipos de mensaje, HELLO/CAPS, CONFIG, STATS, PING/PONG. |
 | STATS y control de bitrate | Hecho | `core/`: métricas EWMA y controlador AIMD con tests. Escritorio: mide RTT, descartes y fps, y envía STATS cada segundo con `target_bitrate_kbps`; test end-to-end con móvil falso. Móviles: aplican STATS (Android `setBitrate`, iOS `AverageBitRate`). Sin verificar en dispositivos reales. |
 | Reconexión | Hecho (escritorio) | `desktop/src/session.rs` reconecta con backoff y repite el handshake; test automático. Sin probar con un móvil real. `core/src/reconnect.rs` existe pero el cliente aún usa su backoff local. |
-| Descubrimiento mDNS / NSD / Bonjour | Hecho (escritorio) | Android anuncia con NSD y iOS con Bonjour (`_opencam._tcp`). Escritorio: `discovery.rs` con `--list` y `--discover`. Sin probar con teléfonos reales. |
+| Descubrimiento mDNS / NSD / Bonjour | Hecho (escritorio) | Android anuncia con NSD y iOS con Bonjour (`_opencam._tcp`). Escritorio: `discovery.rs`; el modo `auto` (por defecto) lo usa si no hay USB. Sin probar con teléfonos reales. |
 | CAPS reales en Android | No verificado | `Caps.kt` (rangos de fps, lente) con tests JVM. Sin móvil. |
 | Cola de envío y robustez Android | No verificado | `StreamService.kt` y `OpcmServer.kt`; tests JVM en `OpcmTest.kt`. |
 | Proyecto XcodeGen iOS | No verificado | `ios/project.yml`. Sin Xcode: no se ha generado ni compilado. |

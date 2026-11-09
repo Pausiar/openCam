@@ -2,6 +2,8 @@
 //! Los mensajes de estado van a stderr: stdout puede ser el flujo Y4M (`--output -`).
 
 use std::io;
+use std::sync::mpsc::Receiver;
+use std::sync::Mutex;
 use std::thread::sleep;
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
@@ -9,11 +11,13 @@ use opencam_core::protocol::MsgType;
 use opencam_core::{Backoff, BitrateConfig, BitrateController, Metrics};
 
 use crate::cli::Cli;
-use crate::client::{self, handshake, Client};
+use crate::client::{self, Client};
+use crate::convert::mirror_yuyv;
 use crate::decoder::VideoDecoder;
+use crate::settings::{Command, LiveSettings};
 use crate::sink::FrameSink;
+use crate::transport;
 
-const CONNECT_TIMEOUT: Duration = Duration::from_secs(5);
 const HANDSHAKE_TIMEOUT: Duration = Duration::from_secs(5);
 const QUEUE_CAPACITY: usize = 4;
 
@@ -28,38 +32,28 @@ pub enum End {
     Fatal(io::Error),
 }
 
-fn connect(cli: &Cli) -> io::Result<Client> {
-    if cli.addr == "iphone" {
-        #[cfg(unix)]
-        return Client::from_stream(Box::new(crate::usbmuxd::connect_iphone_with(
-            4747,
-            cli.udid.as_deref(),
-        )?));
-        #[cfg(not(unix))]
-        return Err(io::Error::other(
-            "`iphone` solo está disponible en macOS y Linux",
-        ));
-    }
-    Client::connect(cli.addr.as_str(), CONNECT_TIMEOUT)
-}
-
 /// Repite conectar + handshake + `serve` hasta un fin normal o fatal (o un único intento con
 /// `--no-reconnect`). El backoff se reinicia tras cada handshake correcto.
-pub fn run(cli: &Cli, mut serve: impl FnMut(&mut Client) -> End) -> io::Result<()> {
-    let config = cli.config_json();
+/// Cada handshake pide los ajustes en vivo actuales (lo cambiado en la consola se conserva).
+pub fn run(
+    cli: &Cli,
+    live: &Mutex<LiveSettings>,
+    mut serve: impl FnMut(&mut Client) -> End,
+) -> io::Result<()> {
     let seed = SystemTime::now()
         .duration_since(UNIX_EPOCH)
         .map_or(1, |d| d.as_nanos() as u64);
     let mut backoff = Backoff::new(500, 5000, 20, seed);
     loop {
-        let attempt = connect(cli).and_then(|mut c| {
-            let caps = handshake(&mut c, &config, HANDSHAKE_TIMEOUT)?;
-            Ok((c, caps))
-        });
-        let err = match attempt {
-            Ok((mut client, caps)) => {
+        let config = cli.config_json(&live.lock().unwrap());
+        let err = match transport::open(cli, &config, HANDSHAKE_TIMEOUT) {
+            Ok(transport::Connected {
+                mut client,
+                caps,
+                via,
+            }) => {
                 backoff.reset();
-                eprintln!("Conectado a {}. CAPS: {caps}", cli.addr);
+                eprintln!("Conectado por {via}. CAPS: {caps}");
                 if caps.contains("h265") {
                     eprintln!("Aviso: el móvil anuncia h265; este escritorio solo decodifica H.264 y lo pide en CONFIG.");
                 }
@@ -96,7 +90,14 @@ fn looks_h265(au: &[u8]) -> bool {
 
 /// Recibe vídeo de una conexión ya negociada hasta que se pierda o falle el sink.
 /// Escala al tamaño del sink (letterbox) aunque el móvil mande otra resolución.
-pub fn serve(client: &mut Client, sink: &mut dyn FrameSink, cli: &Cli) -> End {
+/// Las órdenes de `commands` (consola) actualizan `live` y se reenvían al móvil como CONFIG.
+pub fn serve(
+    client: &mut Client,
+    sink: &mut dyn FrameSink,
+    cli: &Cli,
+    live: &Mutex<LiveSettings>,
+    commands: Option<&Receiver<Command>>,
+) -> End {
     // Decodificador nuevo por conexión: espera el primer keyframe de la sesión.
     let mut decoder = match VideoDecoder::new(QUEUE_CAPACITY) {
         Ok(d) => d,
@@ -107,9 +108,25 @@ pub fn serve(client: &mut Client, sink: &mut dyn FrameSink, cli: &Cli) -> End {
         .unwrap_or((cli.width as usize, cli.height as usize));
     let t0 = Instant::now();
     let mut metrics = Metrics::new(1000, 0);
-    let mut bitrate = BitrateController::new(BitrateConfig::default(), cli.bitrate_kbps);
+    let mut current = live.lock().unwrap().clone();
+    let mut bitrate = BitrateController::new(BitrateConfig::default(), current.bitrate_kbps);
     let (mut last_dropped, mut warned_h265) = (0u64, false);
     loop {
+        // shortcut: las órdenes se atienden al llegar mensajes; con vídeo eso es cada frame.
+        for cmd in commands.into_iter().flat_map(|rx| rx.try_iter()) {
+            let send = current.apply(cmd);
+            *live.lock().unwrap() = current.clone();
+            if let Command::Bitrate(k) = cmd {
+                bitrate = BitrateController::new(BitrateConfig::default(), k);
+            }
+            eprintln!("Ajuste aplicado: {cmd:?}");
+            if send {
+                let json = cli.config_json(&current);
+                if let Err(e) = client.send(MsgType::Config, 0, json.as_bytes()) {
+                    return End::Lost(e);
+                }
+            }
+        }
         let msg = match client.recv() {
             Ok(m) => m,
             Err(e) => return End::Lost(e),
@@ -126,8 +143,11 @@ pub fn serve(client: &mut Client, sink: &mut dyn FrameSink, cli: &Cli) -> End {
                 let mut need_keyframe =
                     decoder.push_access_unit(msg.payload, msg.timestamp_us, keyframe);
                 match decoder.next_yuyv(w, h) {
-                    Ok(Some(yuyv)) => {
+                    Ok(Some(mut yuyv)) => {
                         metrics.on_decoded();
+                        if current.mirror {
+                            mirror_yuyv(&mut yuyv, w);
+                        }
                         if let Err(e) = sink.write_yuyv(&yuyv) {
                             return End::Fatal(e);
                         }
@@ -213,7 +233,7 @@ mod tests {
             }
         });
         let mut served = 0;
-        run(&cli, |c| {
+        run(&cli, &Mutex::new(cli.live()), |c| {
             served += 1;
             loop {
                 match c.recv() {
@@ -237,7 +257,7 @@ mod tests {
             ..Cli::default()
         };
         drop(listener); // nadie escucha
-        assert!(run(&cli, |_| End::Done).is_err());
+        assert!(run(&cli, &Mutex::new(cli.live()), |_| End::Done).is_err());
     }
 
     #[derive(Clone, Default)]
@@ -337,7 +357,12 @@ mod tests {
 
         let out = Shared::default();
         let mut sink = crate::sink::Y4mSink::new(out.clone(), 1920, 1080, 30).unwrap();
-        assert!(run(&cli, |c| serve(c, &mut sink, &cli)).is_err()); // el móvil cierra: Lost sin reconexión
+        let live = Mutex::new(cli.live());
+        let (tx, rx) = std::sync::mpsc::channel();
+        tx.send(Command::Zoom(2.0)).unwrap();
+        tx.send(Command::Mirror(true)).unwrap();
+        assert!(run(&cli, &live, |c| serve(c, &mut sink, &cli, &live, Some(&rx))).is_err());
+        assert_eq!(live.lock().unwrap().zoom, Some(2.0)); // el móvil cierra: Lost sin reconexión
         let stats = phone.join().unwrap();
         assert!(
             stats.contains(r#""target_bitrate_kbps":8000"#) && stats.contains("decoded_fps"),
