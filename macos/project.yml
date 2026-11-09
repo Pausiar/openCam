@@ -1,0 +1,60 @@
+# App de macOS con la cámara virtual de OpenCam (extensión de cámara CoreMediaIO).
+# Genera OpenCam.xcodeproj con: brew install xcodegen && cd macos && xcodegen generate
+# Para firmar: pon tu Team ID en DEVELOPMENT_TEAM (o elígelo en Xcode, en los dos targets).
+name: OpenCamMac
+options:
+  bundleIdPrefix: dev.opencam
+  deploymentTarget:
+    macOS: "13.0"
+settings:
+  base:
+    SWIFT_VERSION: "5.0"
+    MARKETING_VERSION: "0.1.0"
+    CURRENT_PROJECT_VERSION: "1"
+    CODE_SIGN_STYLE: Automatic
+    ENABLE_HARDENED_RUNTIME: YES
+    MACOSX_DEPLOYMENT_TARGET: "13.0"
+    DEVELOPMENT_TEAM: ""
+targets:
+  OpenCam:
+    type: application
+    platform: macOS
+    sources:
+      - path: OpenCam
+        excludes: [Info.plist, OpenCam.entitlements]
+      - path: Shared
+    dependencies:
+      # La extensión va dentro de la app, en Contents/Library/SystemExtensions.
+      - target: CameraExtension
+        embed: true
+        codeSign: true
+        copy:
+          destination: wrapper
+          subpath: $(CONTENTS_FOLDER_PATH)/Library/SystemExtensions
+      - sdk: CoreMediaIO.framework
+      - sdk: SystemExtensions.framework
+    settings:
+      base:
+        PRODUCT_NAME: OpenCam
+        PRODUCT_BUNDLE_IDENTIFIER: dev.opencam.mac
+        INFOPLIST_FILE: OpenCam/Info.plist
+        GENERATE_INFOPLIST_FILE: NO
+        CODE_SIGN_ENTITLEMENTS: OpenCam/OpenCam.entitlements
+  CameraExtension:
+    type: system-extension
+    platform: macOS
+    sources:
+      - path: CameraExtension
+        excludes: [Info.plist, CameraExtension.entitlements]
+      - path: Shared
+    dependencies:
+      - sdk: CoreMediaIO.framework
+    settings:
+      base:
+        # El ID de la extensión debe empezar por el de la app.
+        PRODUCT_NAME: dev.opencam.mac.camera
+        PRODUCT_BUNDLE_IDENTIFIER: dev.opencam.mac.camera
+        INFOPLIST_FILE: CameraExtension/Info.plist
+        GENERATE_INFOPLIST_FILE: NO
+        CODE_SIGN_ENTITLEMENTS: CameraExtension/CameraExtension.entitlements
+        SKIP_INSTALL: YES

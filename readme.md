@@ -10,11 +10,11 @@ El proyecto está en desarrollo. Lo que sigue dice qué está probado de verdad 
 |---|---|---|
 | Android (móvil) | App Kotlin con Camera2 y MediaCodec. Transporte USB (`adb forward`) y Wi-Fi. Anuncia el servicio por NSD. | APK de debug y tests unitarios en CI. Sin probar en un móvil real. |
 | iPhone (móvil) | App Swift con AVFoundation y VideoToolbox. Transporte USB (usbmuxd) y Wi-Fi con Bonjour. | Proyecto XcodeGen revisado. No compilado: el entorno de desarrollo no tiene Xcode. |
-| Linux (escritorio) | Cliente Rust que publica en `/dev/videoN` con v4l2loopback. | Compila y tiene tests. Sin probar con el módulo cargado. |
+| Linux (escritorio) | Cliente Rust que publica en `/dev/videoN` con v4l2loopback, e instalador del módulo (`desktop/linux/install.sh`). | Compila y tiene tests. Sin probar con el módulo cargado. |
 | Windows (escritorio) | Cliente Rust, filtro DirectShow (`opencam_vcam.dll`) e instalador NSIS. | Compila en CI. Sin ejecutar ni registrar en Windows. |
-| macOS (escritorio) | Cliente Rust sin cámara virtual. | Compila en CI. Sale a Y4M por archivo o stdout (`--sink y4m`, por defecto en macOS); sin cámara virtual real. |
+| macOS (escritorio) | Cliente Rust y `OpenCam.app` con una extensión de cámara CoreMediaIO (`macos/`). | Compila en CI (sin firmar). Sin probar en un Mac; hay que compilarla con una cuenta de Apple Developer. |
 
-Detalles de cada pieza y de lo que falta: [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md), [`desktop/README.md`](desktop/README.md) e [`ios/README.md`](ios/README.md).
+Detalles de cada pieza y de lo que falta: [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md), [`desktop/README.md`](desktop/README.md), [`macos/README.md`](macos/README.md) e [`ios/README.md`](ios/README.md).
 
 ## Descargas
 
@@ -28,21 +28,29 @@ Las apps compiladas se publican en las [releases de GitHub](https://github.com/P
 2. Abre OpenCam y pulsa **Iniciar**.
 3. Por USB, ejecuta `adb forward tcp:4747 tcp:4747` y conecta el escritorio a `127.0.0.1:4747`. Por Wi-Fi, usa la IP del móvil en el puerto 4747.
 
-### iPhone (solo Linux, por ahora)
+### iPhone (Linux y macOS)
 
 1. Compila la app desde `ios/` con XcodeGen y Xcode, en un Mac con tu firma de Apple. No hay descarga.
 2. Abre la app en primer plano y pulsa **Iniciar**. iOS no captura cámara en segundo plano.
-3. Conecta por USB con usbmuxd instalado: `opencam-desktop iphone --device /dev/video10`.
+3. Conecta por USB (en Linux con usbmuxd instalado): `opencam-desktop iphone`.
 
 ### Linux
 
+Con la release (`opencam-linux-x86_64.tar.gz`):
+
 ```bash
-sudo modprobe v4l2loopback video_nr=10 card_label="OpenCam" exclusive_caps=1
-cd desktop
-cargo run --release -- --addr 127.0.0.1:4747 --device /dev/video10
+tar xzf opencam-linux-x86_64.tar.gz && cd opencam-linux-x86_64
+sudo ./install.sh ./opencam-desktop   # instala v4l2loopback y crea la cámara "OpenCam"
+opencam-desktop 127.0.0.1:4747
 ```
 
-Las opciones completas están en `opencam-desktop --help`.
+Desde el código: `sudo desktop/linux/install.sh` y luego `cd desktop && cargo run --release -- 127.0.0.1:4747`. Las opciones completas están en `opencam-desktop --help`.
+
+### macOS
+
+1. Compila `OpenCam.app` desde `macos/` con tu cuenta de Apple Developer y cópiala a Aplicaciones ([`macos/README.md`](macos/README.md)).
+2. Ábrela, pulsa **Instalar cámara** y acepta el permiso en Ajustes del Sistema.
+3. Arranca el cliente: `opencam-desktop 127.0.0.1:4747` (o `iphone`). En la app de vídeo, elige **OpenCam**.
 
 ### Windows
 
@@ -58,6 +66,7 @@ cd desktop && cargo build --release
 cd desktop && cargo test
 cd android && ./gradlew :app:assembleDebug
 cd ios && xcodegen generate        # luego abre OpenCam.xcodeproj en Xcode (requiere macOS)
+cd macos && xcodegen generate      # cámara virtual de macOS: abre OpenCamMac.xcodeproj
 ```
 
 El filtro de Windows es un crate aparte: `cd desktop/windows-vcam && cargo build --release` en Windows.

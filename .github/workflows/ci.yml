@@ -64,6 +64,44 @@ jobs:
           cd desktop/windows-vcam
           cargo check --target x86_64-pc-windows-gnu --locked
 
+  linux-installer:
+    name: Instalador de Linux (sintaxis)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: shellcheck
+        shell: bash
+        run: |
+          sh -n desktop/linux/install.sh
+          shellcheck desktop/linux/install.sh
+
+  macos:
+    name: macOS (cliente y cámara virtual)
+    runs-on: macos-15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: desktop
+      - name: Compilar y probar el cliente de escritorio (macOS)
+        working-directory: desktop
+        shell: bash
+        run: |
+          cargo build --locked
+          cargo test --locked
+      - name: Instalar XcodeGen
+        run: brew install xcodegen
+      - name: Compilar app y extensión de cámara (sin firmar)
+        # Sin firma no se puede instalar la extensión; sólo comprueba que compila.
+        working-directory: macos
+        shell: bash
+        run: |
+          xcodegen generate
+          xcodebuild -project OpenCamMac.xcodeproj -target OpenCam -configuration Release \
+            CODE_SIGNING_ALLOWED=NO build
+          test -d build/Release/OpenCam.app/Contents/Library/SystemExtensions/dev.opencam.mac.camera.systemextension
+
   android:
     name: Android (APK de debug)
     runs-on: ubuntu-latest

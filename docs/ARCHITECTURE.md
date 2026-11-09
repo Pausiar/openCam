@@ -84,10 +84,10 @@ Leyenda:
 | Proyecto XcodeGen iOS | No verificado | `ios/project.yml`. Sin Xcode: no se ha generado ni compilado. |
 | Captura iOS con presets 3840 / 1920 / 1280 | No verificado | `CameraStreamer.swift`. H.264 solo. |
 | Salida Y4M (archivo o stdout) | Hecho (escritorio) | `desktop/src/sink.rs` con tests, conectado a la CLI (`--sink y4m`, `--output`; por defecto en macOS). No es cámara virtual. |
-| Cámara virtual Linux (v4l2loopback) | No verificado | Compila. Sin probar con el módulo cargado. |
+| Cámara virtual Linux (v4l2loopback) | No verificado | Compila, con tests. `--device auto`, fps con `VIDIOC_S_PARM` e instalador `desktop/linux/install.sh`. Sin probar con el módulo cargado. |
 | Cámara virtual Windows (DirectShow) | No verificado | Memoria compartida (`sink_windows.rs`, `shared_frame`) y filtro (`windows-vcam/`). `IAMStreamConfig` e `IKsPropertySet` implementados en `pin.rs`, con 1080p, 720p y 480p. CI compila la DLL. Sin registrar ni ejecutar. |
 | Instalador Windows | No verificado | `desktop/windows-installer/opencam.nsi`. CI valida la sintaxis con binarios de prueba. |
-| Cámara virtual macOS | Pendiente | Sin cámara virtual. Hay salida Y4M por stdout o archivo. |
+| Cámara virtual macOS | No verificado | Extensión de cámara CoreMediaIO en `macos/` (source + sink, 1080p30 YUYV); el cliente le pasa frames a través de `OpenCam.app --feed`. Compila en CI sin firmar; sin probar en un Mac. |
 | H.265 y 4K en escritorio | Pendiente | Trabajo futuro. El escritorio solo decodifica H.264 con OpenH264. |
 | Audio y micrófono virtual | Pendiente | Fase 3. |
 | Bluetooth Android | Pendiente | Fase 4. |
@@ -96,7 +96,7 @@ Leyenda:
 ### Por fase
 
 1. **MVP** (Android + Windows, 1080p por USB, cámara virtual): **Parcial**. El código de ambos lados existe y el escritorio tiene tests. Falta probarlo en hardware real.
-2. **iPhone por USB, macOS y Linux**: **Parcial**. Linux tiene el cliente; el camino iPhone por usbmuxd está en el cliente y en la app iOS sin compilar; macOS espera la cámara virtual.
+2. **iPhone por USB, macOS y Linux**: **Parcial**. Linux y macOS tienen cliente y cámara virtual; el camino iPhone por usbmuxd está en el cliente y en la app iOS, sin probar en dispositivos reales.
 3. **4K, H.265, controles avanzados, audio y micrófono virtual**: **Pendiente**.
 4. **Wi-Fi con descubrimiento, Bluetooth Android, ajustes avanzados**: **Parcial**. Wi-Fi TCP y el descubrimiento mDNS están en el cliente. Bluetooth está pendiente.
 
@@ -105,11 +105,13 @@ Leyenda:
 ```
 core/                       Núcleo Rust: protocolo OPCM, cola, métricas, bitrate, reconexión
 desktop/                    Cliente de escritorio (CLI Rust, OpenH264)
-desktop/src/                Sesión, cliente, decodificador, sinks Linux/Windows, usbmuxd
+desktop/src/                Sesión, cliente, decodificador, sinks Linux/Windows/macOS, usbmuxd
+desktop/linux/              Instalador de v4l2loopback para Linux
 desktop/windows-vcam/       Filtro DirectShow (DLL), crate aparte
 desktop/windows-installer/  Script NSIS del instalador de Windows
 android/                    App Kotlin (Camera2 + MediaCodec)
 ios/                        App Swift (AVFoundation + VideoToolbox), proyecto XcodeGen
+macos/                      OpenCam.app + extensión de cámara CoreMediaIO, proyecto XcodeGen
 site/                       Página de descargas (GitHub Pages)
 docs/                       Arquitectura y protocolo
 .github/workflows/          CI (tests, compilaciones, sintaxis del instalador) y release

@@ -102,7 +102,9 @@ pub fn serve(client: &mut Client, sink: &mut dyn FrameSink, cli: &Cli) -> End {
         Ok(d) => d,
         Err(e) => return End::Fatal(io::Error::other(e.to_string())),
     };
-    let (w, h) = (cli.width as usize, cli.height as usize);
+    let (w, h) = sink
+        .fixed_size()
+        .unwrap_or((cli.width as usize, cli.height as usize));
     let t0 = Instant::now();
     let mut metrics = Metrics::new(1000, 0);
     let mut bitrate = BitrateController::new(BitrateConfig::default(), cli.bitrate_kbps);
