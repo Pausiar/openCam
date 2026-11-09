@@ -8,6 +8,15 @@ pub trait FrameSink {
     fn write_yuyv(&mut self, yuyv: &[u8]) -> io::Result<()>;
 }
 
+/// Descarta los frames: la interfaz gráfica sin cámara virtual (p. ej. macOS) solo muestra la vista previa.
+pub struct NullSink;
+
+impl FrameSink for NullSink {
+    fn write_yuyv(&mut self, _yuyv: &[u8]) -> io::Result<()> {
+        Ok(())
+    }
+}
+
 /// Escribe YUV4MPEG2 (4:2:2 planar) a cualquier `Write`.
 pub struct Y4mSink<W: Write> {
     out: W,

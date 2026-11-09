@@ -4,7 +4,8 @@ pub const HELP: &str = "\
 opencam-desktop: recibe vídeo OPCM del móvil y lo expone como cámara virtual
 
 USO:
-    opencam-desktop [DIRECCION] [OPCIONES]
+    opencam-desktop                         abre la interfaz gráfica
+    opencam-desktop [DIRECCION] [OPCIONES]  modo línea de órdenes
 
 DIRECCION (o --addr):
     auto          busca solo: Android por USB (adb), iPhone por USB y luego Wi-Fi (mDNS)
@@ -21,7 +22,9 @@ OPCIONES:
     --height <px>      alto [1080]
     --fps <n>          fotogramas por segundo [30]
     --bitrate <kbps>   tasa de bits [8000]
-    --sink <tipo>      v4l2 (Linux), windows o y4m [v4l2 en Linux, windows en Windows, y4m en macOS]
+    --phone-settings   usa la resolución, fps y bitrate elegidos en el móvil (no los pide)
+    --sink <tipo>      v4l2 (Linux), windows, y4m o none (solo recibe)
+                       [v4l2 en Linux, windows en Windows, y4m en macOS]
     --output <ruta>    archivo de salida de --sink y4m; `-` es stdout [-]
     --list             lista teléfonos (mDNS) e iPhones USB y sale
     --discover         igual que `wifi`
@@ -29,6 +32,7 @@ OPCIONES:
     --serial <id>      igual que --udid
     --adb <ruta>       ruta de adb si no está en el PATH ni en el SDK de Android
     --no-reconnect     salir al perder la conexión en vez de reconectar
+    --gui              abre la interfaz gráfica (lo mismo que sin argumentos)
     -h, --help         muestra esta ayuda
 ";
 
@@ -37,10 +41,12 @@ pub enum SinkKind {
     V4l2,
     Windows,
     Y4m,
+    /// Sin salida: solo recibe (la interfaz gráfica muestra la vista previa).
+    None,
 }
 
 impl SinkKind {
-    fn default_for_os() -> Self {
+    pub fn default_for_os() -> Self {
         if cfg!(target_os = "linux") {
             Self::V4l2
         } else if cfg!(windows) {
@@ -51,7 +57,7 @@ impl SinkKind {
     }
 }
 
-#[derive(Debug, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Cli {
     pub addr: String,
     pub device: String,
@@ -59,6 +65,8 @@ pub struct Cli {
     pub height: u32,
     pub fps: u32,
     pub bitrate_kbps: u32,
+    /// No pedir resolución/fps/bitrate: el móvil usa los suyos.
+    pub phone_settings: bool,
     pub reconnect: bool,
     pub sink: SinkKind,
     pub output: String,
@@ -66,6 +74,7 @@ pub struct Cli {
     pub discover: bool,
     pub udid: Option<String>,
     pub adb: Option<String>,
+    pub gui: bool,
 }
 
 impl Default for Cli {
@@ -77,6 +86,7 @@ impl Default for Cli {
             height: 1080,
             fps: 30,
             bitrate_kbps: 8000,
+            phone_settings: false,
             reconnect: true,
             sink: SinkKind::default_for_os(),
             output: "-".into(),
@@ -84,6 +94,7 @@ impl Default for Cli {
             discover: false,
             udid: None,
             adb: None,
+            gui: false,
         }
     }
 }
@@ -106,6 +117,8 @@ impl Cli {
             match a.as_str() {
                 "-h" | "--help" => return Err(CliError::Help),
                 "--no-reconnect" => cli.reconnect = false,
+                "--phone-settings" => cli.phone_settings = true,
+                "--gui" => cli.gui = true,
                 "--list" => cli.list = true,
                 "--discover" => cli.discover = true,
                 "--udid" | "--serial" => cli.udid = Some(value(&a)?),
@@ -116,9 +129,10 @@ impl Cli {
                         "v4l2" => SinkKind::V4l2,
                         "windows" => SinkKind::Windows,
                         "y4m" => SinkKind::Y4m,
+                        "none" => SinkKind::None,
                         o => {
                             return Err(CliError::Invalid(format!(
-                                "--sink desconocido: {o} (v4l2|windows|y4m)"
+                                "--sink desconocido: {o} (v4l2|windows|y4m|none)"
                             )))
                         }
                     }
@@ -145,8 +159,12 @@ impl Cli {
         Ok(cli)
     }
 
-    /// JSON del mensaje CONFIG (ver docs/PROTOCOL.md).
+    /// JSON del mensaje CONFIG (ver docs/PROTOCOL.md). Con `phone_settings` solo fija el códec
+    /// y el móvil conserva sus ajustes locales para el resto de campos.
     pub fn config_json(&self) -> String {
+        if self.phone_settings {
+            return r#"{"codec":"h264"}"#.into();
+        }
         format!(
             r#"{{"codec":"h264","width":{},"height":{},"fps":{},"bitrate_kbps":{},"lens":"wide"}}"#,
             self.width, self.height, self.fps, self.bitrate_kbps
@@ -241,5 +259,13 @@ mod tests {
             (c.addr.as_str(), c.udid.as_deref(), c.adb.as_deref()),
             ("usb", Some("R58M"), Some("/opt/adb"))
         );
+    }
+
+    #[test]
+    fn phone_settings_only_sends_codec() {
+        let c = parse(&["--phone-settings", "--sink", "none", "--gui"]).unwrap();
+        assert!(c.phone_settings && c.gui);
+        assert_eq!(c.sink, SinkKind::None);
+        assert_eq!(c.config_json(), r#"{"codec":"h264"}"#);
     }
 }

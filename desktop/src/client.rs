@@ -61,6 +61,8 @@ pub struct Client {
     reader: Box<dyn Stream>,
     tx: Sender,
     epoch: Instant,
+    /// JSON de CAPS recibido en el handshake (vacío antes).
+    pub caps: String,
 }
 
 impl Client {
@@ -86,6 +88,7 @@ impl Client {
             reader: stream,
             tx: Sender(Arc::new(Mutex::new(writer))),
             epoch,
+            caps: String::new(),
         })
     }
 
