@@ -58,6 +58,22 @@ Un tipo desconocido se ignora y se registra; no cierra la conexión. Así, un m�
    ```json
    {"codec":"h264","width":1920,"height":1080,"fps":30,"bitrate_kbps":8000,"lens":"wide"}
    ```
+   Campos avanzados opcionales (si faltan, el móvil conserva su valor actual, p. ej. lo elegido en su pantalla):
+
+   | Campo            | Valores | Efecto |
+   |------------------|---------|--------|
+   | `facing`         | `"back"` \| `"front"` | Cámara trasera o frontal. Si no hay frontal, se usa la trasera |
+   | `stabilization`  | `true` \| `false` | Estabilización de vídeo (EIS y/o OIS si existen) |
+   | `zoom`           | número ≥ 1 | Factor de zoom; el móvil lo limita a `max_zoom` |
+   | `focus`          | `"auto"` \| `"manual"` | Autoenfoque continuo o enfoque manual |
+   | `focus_distance` | 0.0 – 1.0 | Con `focus:"manual"`: 0 = infinito, 1 = lo más cerca que permita la lente |
+
+   `CONFIG` puede reenviarse durante la sesión. `zoom`, `focus`, `focus_distance`, `stabilization` y `bitrate_kbps`
+   se aplican en caliente; el resto (resolución, fps, códec, lente, `facing`) reinicia cámara y codificador, y el
+   primer frame vuelve a ser keyframe. El **modo espejo** no viaja en el protocolo: lo aplica el escritorio.
+
+   En `CAPS` el móvil puede anunciar además `"facings":["back","front"]`, `"max_zoom":N`,
+   `"stabilization":bool` y `"manual_focus":bool`.
 4. El móvil empieza a emitir `VIDEO`. El primer frame debe ser keyframe con SPS/PPS.
 5. El escritorio manda `PING` cada 1 s. Latencia = `ahora − timestamp_us` del `PONG`.
 

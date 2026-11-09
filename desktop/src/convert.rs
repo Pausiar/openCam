@@ -63,6 +63,27 @@ pub fn i420_to_yuyv(
     Ok(out)
 }
 
+/// Modo espejo: voltea en horizontal un frame YUYV de ancho `w` (par), en el sitio.
+/// Cada par de píxeles comparte U/V: se invierte el orden de los pares y se cruzan sus Y.
+pub fn mirror_yuyv(yuyv: &mut [u8], w: usize) {
+    let stride = w * 2;
+    if stride == 0 {
+        return;
+    }
+    for row in yuyv.chunks_exact_mut(stride) {
+        let pairs = w / 2;
+        for i in 0..pairs / 2 {
+            let j = pairs - 1 - i;
+            for k in 0..4 {
+                row.swap(i * 4 + k, j * 4 + k);
+            }
+        }
+        for p in row.chunks_exact_mut(4) {
+            p.swap(0, 2);
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -102,6 +123,17 @@ mod tests {
         assert_eq!(&out[..4], &[16, 128, 16, 128]);
         let mid = (24 * 64 + 32) * 2;
         assert_eq!(&out[mid..mid + 4], &[100, 90, 100, 200]);
+    }
+
+    #[test]
+    fn mirror_flips_rows() {
+        // Una fila de 6 píxeles: Y = 1..6, U/V por par.
+        let mut row = vec![1, 10, 2, 20, 3, 11, 4, 21, 5, 12, 6, 22];
+        let orig = row.clone();
+        mirror_yuyv(&mut row, 6);
+        assert_eq!(row, vec![6, 12, 5, 22, 4, 11, 3, 21, 2, 10, 1, 20]);
+        mirror_yuyv(&mut row, 6);
+        assert_eq!(row, orig);
     }
 
     #[test]
