@@ -13,7 +13,7 @@ use opencam_core::protocol::DEFAULT_PORT;
 
 use crate::adb;
 use crate::cli::Cli;
-use crate::client::{handshake, Client};
+use crate::client::{handshake_with, Client, Pairing, PairingError};
 use crate::discovery;
 
 const CONNECT_TIMEOUT: Duration = Duration::from_secs(5);
@@ -55,10 +55,22 @@ pub struct Connected {
     pub via: String,
 }
 
-/// Conecta según `cli.addr` y completa el handshake.
-pub fn open(cli: &Cli, config: &str, handshake_timeout: Duration) -> io::Result<Connected> {
-    let negotiate = |mut client: Client, via: String| -> io::Result<Connected> {
-        let caps = handshake(&mut client, config, handshake_timeout)?;
+/// Conecta según `cli.addr` y completa el handshake (con emparejamiento si el móvil lo pide).
+/// En `auto`, un error de emparejamiento corta la búsqueda: es el móvil correcto y hace falta
+/// el código, probar otro camino no lo arregla.
+pub fn open(
+    cli: &Cli,
+    config: &str,
+    handshake_timeout: Duration,
+    pairing: Pairing,
+) -> io::Result<Connected> {
+    let Pairing { store, code } = pairing;
+    let mut negotiate = |mut client: Client, via: String| -> io::Result<Connected> {
+        let p = Pairing {
+            store: &mut *store,
+            code,
+        };
+        let caps = handshake_with(&mut client, config, handshake_timeout, p)?;
         Ok(Connected { client, caps, via })
     };
     match Target::parse(&cli.addr) {
@@ -76,6 +88,7 @@ pub fn open(cli: &Cli, config: &str, handshake_timeout: Duration) -> io::Result<
             for (name, attempt) in tries {
                 match attempt(cli).and_then(|(c, v)| negotiate(c, v)) {
                     Ok(c) => return Ok(c),
+                    Err(e) if PairingError::from_io(&e).is_some() => return Err(e),
                     Err(e) => errors.push(format!("{name}: {e}")),
                 }
             }
@@ -209,7 +222,12 @@ mod tests {
             adb: Some(script.to_string_lossy().into_owned()),
             ..Cli::default()
         };
-        let c = open(&cli, "{}", Duration::from_secs(5)).unwrap();
+        let mut store = crate::pairing::PairingStore::in_memory();
+        let pairing = Pairing {
+            store: &mut store,
+            code: None,
+        };
+        let c = open(&cli, "{}", Duration::from_secs(5), pairing).unwrap();
         assert!(
             c.via.contains("R58M") && c.via.contains(&port.to_string()),
             "{}",

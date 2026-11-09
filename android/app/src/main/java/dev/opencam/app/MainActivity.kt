@@ -86,7 +86,9 @@ class MainActivity : Activity() {
                 "te encontrará solo por USB (con depuración USB) o por la Wi-Fi."
             ConnectionState.connected -> "Conectado al ordenador"
             else -> waitingText()
-        }
+        } + (ConnectionState.pairingCode
+            ?.takeIf { running && !ConnectionState.connected }
+            ?.let { "\nCódigo de emparejamiento: ${it.take(3)} ${it.drop(3)}" } ?: "")
     }
 
     private fun waitingText(): String {

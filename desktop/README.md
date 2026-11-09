@@ -18,6 +18,21 @@ cargo build
 cargo test
 ```
 
+## Emparejar con el móvil
+
+La conexión va cifrada y el móvil solo acepta PCs emparejados. La primera vez, abre la app en
+el móvil, mira el código de 6 dígitos y pásalo con `--code`:
+
+```bash
+opencam-desktop 192.168.1.20:4747 --code 123456
+```
+
+El PC guarda la clave en `~/.config/opencam/pairings` (Linux), `~/Library/Application
+Support/opencam/pairings` (macOS) o `%APPDATA%\opencam\pairings` (Windows), con permisos solo
+para tu usuario. Las siguientes veces no hace falta el código. Si el código es incorrecto, el
+programa se detiene en vez de reintentar (cada intento fallido cuenta y a los 5 el móvil
+genera otro código). Detalles en `docs/PROTOCOL.md`, sección «Seguridad».
+
 ## Ajustes avanzados de vídeo
 
 Al arrancar:

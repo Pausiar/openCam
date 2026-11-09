@@ -14,6 +14,7 @@ pub enum MsgType {
     Hello,
     Caps,
     Config,
+    Auth,
     Video,
     Ping,
     Pong,
@@ -29,6 +30,7 @@ impl MsgType {
             MsgType::Hello => 0x01,
             MsgType::Caps => 0x02,
             MsgType::Config => 0x03,
+            MsgType::Auth => 0x04,
             MsgType::Video => 0x10,
             MsgType::Ping => 0x20,
             MsgType::Pong => 0x21,
@@ -45,6 +47,7 @@ impl MsgType {
             0x01 => MsgType::Hello,
             0x02 => MsgType::Caps,
             0x03 => MsgType::Config,
+            0x04 => MsgType::Auth,
             0x10 => MsgType::Video,
             0x20 => MsgType::Ping,
             0x21 => MsgType::Pong,
@@ -190,9 +193,64 @@ mod tests {
 
     #[test]
     fn msg_type_codes_roundtrip() {
-        for code in [0x01, 0x02, 0x03, 0x10, 0x20, 0x21, 0x22, 0x30, 0x40, 0x7F] {
+        for code in [
+            0x01, 0x02, 0x03, 0x04, 0x10, 0x20, 0x21, 0x22, 0x30, 0x40, 0x7F,
+        ] {
             assert_eq!(MsgType::from_code(code).unwrap().code(), code);
         }
         assert_eq!(MsgType::from_code(0xEE), None);
+    }
+
+    #[test]
+    fn extreme_values_roundtrip_big_endian() {
+        let h = Header {
+            msg_type: 0xFF,
+            flags: 0xFFFF,
+            seq: u32::MAX,
+            timestamp_us: u64::MAX - 1,
+            payload_len: MAX_PAYLOAD,
+        };
+        let b = h.encode();
+        assert_eq!(&b[0..4], b"OPCM");
+        assert_eq!(b[4], VERSION);
+        assert_eq!(&b[20..24], &MAX_PAYLOAD.to_be_bytes());
+        assert_eq!(Header::decode(&b).unwrap(), h);
+    }
+
+    #[test]
+    fn keyframe_flag_ignores_other_bits() {
+        let mut h = Header::decode(
+            &Header {
+                msg_type: 0x10,
+                flags: 0xFFFE,
+                seq: 0,
+                timestamp_us: 0,
+                payload_len: 0,
+            }
+            .encode(),
+        )
+        .unwrap();
+        assert!(!h.is_keyframe());
+        h.flags |= FLAG_KEYFRAME;
+        assert!(h.is_keyframe());
+    }
+
+    #[test]
+    fn every_code_is_known_or_ignored() {
+        let known = (0..=255u8)
+            .filter_map(MsgType::from_code)
+            .inspect(|t| assert_eq!(MsgType::from_code(t.code()), Some(*t)))
+            .count();
+        assert_eq!(known, 11);
+    }
+
+    #[test]
+    fn magic_is_checked_before_version_and_size() {
+        let mut b = [0u8; HEADER_LEN];
+        b[4] = 9;
+        b[20..24].copy_from_slice(&u32::MAX.to_be_bytes());
+        assert_eq!(Header::decode(&b), Err(ProtoError::BadMagic));
+        b[0..4].copy_from_slice(&MAGIC);
+        assert_eq!(Header::decode(&b), Err(ProtoError::UnsupportedVersion(9)));
     }
 }

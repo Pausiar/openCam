@@ -4,6 +4,7 @@ mod client;
 mod convert;
 mod decoder;
 mod discovery;
+mod pairing;
 mod session;
 mod settings;
 mod sink;

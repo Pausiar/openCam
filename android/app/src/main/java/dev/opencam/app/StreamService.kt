@@ -63,6 +63,7 @@ class StreamService : Service() {
             onStats = { json -> applyStats(json) },
             onKeyframeRequest = { encoder?.requestKeyframe() },
             onClientChanged = { connected -> ConnectionState.set(connected) },
+            pairing = PairingPrefs.pairing(this),
         ).also { it.start() }
         nsd = NsdAdvertiser(this).also { it.start() }
         // Cambios desde la pantalla del móvil: mismo camino que un CONFIG del escritorio.
@@ -84,6 +85,7 @@ class StreamService : Service() {
         cameraHandler?.post { stopCapture() }
         cameraThread?.quitSafely()
         ConnectionState.running = false
+        ConnectionState.pairingCode = null
         ConnectionState.set(false)
         super.onDestroy()
     }
@@ -428,15 +430,26 @@ data class StreamConfig(
         ) == this
 
     companion object {
+        // Límites: un CONFIG absurdo no debe tumbar el codificador ni la app.
+        const val MIN_DIMENSION = 16
+        const val MAX_DIMENSION = 7680
+        const val MAX_FPS = 240
+        const val MIN_BITRATE_KBPS = 100
+        const val MAX_BITRATE_KBPS = 200_000
+        private val CODECS = setOf("h264", "h265")
+        private val LENSES = setOf("wide", "ultrawide", "tele")
+
+        /** Lee CONFIG; los valores fuera de rango se acotan y los desconocidos usan `fallback`. */
         fun parse(json: String, fallback: StreamConfig): StreamConfig {
             val o = JSONObject(json)
+            fun dim(key: String, def: Int) = o.optInt(key, def).let { if (it <= 0) def else it.coerceIn(MIN_DIMENSION, MAX_DIMENSION) } and 1.inv()
             return StreamConfig(
-                width = o.optInt("width", fallback.width),
-                height = o.optInt("height", fallback.height),
-                fps = o.optInt("fps", fallback.fps),
-                bitrateKbps = o.optInt("bitrate_kbps", fallback.bitrateKbps),
-                codec = o.optString("codec", fallback.codec),
-                lens = o.optString("lens", fallback.lens),
+                width = dim("width", fallback.width),
+                height = dim("height", fallback.height),
+                fps = o.optInt("fps", fallback.fps).let { if (it <= 0) fallback.fps else it.coerceAtMost(MAX_FPS) },
+                bitrateKbps = o.optInt("bitrate_kbps", fallback.bitrateKbps).coerceIn(MIN_BITRATE_KBPS, MAX_BITRATE_KBPS),
+                codec = o.optString("codec", fallback.codec).takeIf { it in CODECS } ?: fallback.codec,
+                lens = o.optString("lens", fallback.lens).takeIf { it in LENSES } ?: fallback.lens,
                 facing = o.optString("facing", fallback.facing).takeIf { it == "front" || it == "back" } ?: fallback.facing,
                 stabilization = o.optBoolean("stabilization", fallback.stabilization),
                 zoom = o.optDouble("zoom", fallback.zoom.toDouble()).toFloat().takeIf { it.isFinite() } ?: fallback.zoom,
@@ -457,6 +470,9 @@ object ConnectionState {
     @Volatile var running: Boolean = false
 
     var listener: ((Boolean) -> Unit)? = null
+
+    /** Código de emparejamiento que la UI debe mostrar mientras el servicio corre. */
+    @Volatile var pairingCode: String? = null
 
     fun set(value: Boolean) {
         connected = value

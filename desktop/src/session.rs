@@ -14,6 +14,7 @@ use crate::cli::Cli;
 use crate::client::{self, Client};
 use crate::convert::mirror_yuyv;
 use crate::decoder::VideoDecoder;
+use crate::pairing::PairingStore;
 use crate::settings::{Command, LiveSettings};
 use crate::sink::FrameSink;
 use crate::transport;
@@ -38,22 +39,47 @@ pub enum End {
 pub fn run(
     cli: &Cli,
     live: &Mutex<LiveSettings>,
+    serve: impl FnMut(&mut Client) -> End,
+) -> io::Result<()> {
+    run_with(cli, live, &mut PairingStore::load_default(), serve)
+}
+
+/// Como `run`, con un almacén de emparejamientos concreto (los tests usan uno en memoria).
+/// El código de `--code` solo se usa hasta el primer emparejamiento correcto: después
+/// basta la clave guardada.
+pub fn run_with(
+    cli: &Cli,
+    live: &Mutex<LiveSettings>,
+    store: &mut PairingStore,
     mut serve: impl FnMut(&mut Client) -> End,
 ) -> io::Result<()> {
+    let mut code = cli.code.clone();
     let seed = SystemTime::now()
         .duration_since(UNIX_EPOCH)
         .map_or(1, |d| d.as_nanos() as u64);
     let mut backoff = Backoff::new(500, 5000, 20, seed);
     loop {
         let config = cli.config_json(&live.lock().unwrap());
-        let err = match transport::open(cli, &config, HANDSHAKE_TIMEOUT) {
+        let pairing = client::Pairing {
+            store: &mut *store,
+            code: code.as_deref(),
+        };
+        let err = match transport::open(cli, &config, HANDSHAKE_TIMEOUT, pairing) {
             Ok(transport::Connected {
                 mut client,
                 caps,
                 via,
             }) => {
                 backoff.reset();
-                eprintln!("Conectado por {via}. CAPS: {caps}");
+                if client.is_secure() {
+                    code = None; // ya emparejado: las reconexiones usan la clave guardada
+                }
+                let mode = if client.is_secure() {
+                    "cifrado"
+                } else {
+                    "SIN cifrar"
+                };
+                eprintln!("Conectado por {via} ({mode}). CAPS: {caps}");
                 if caps.contains("h265") {
                     eprintln!("Aviso: el móvil anuncia h265; este escritorio solo decodifica H.264 y lo pide en CONFIG.");
                 }
@@ -66,6 +92,8 @@ pub fn run(
                     End::Lost(e) => e,
                 }
             }
+            // Emparejamiento fallido: reintentar gastaría intentos del código; lo arregla el usuario.
+            Err(e) if client::PairingError::from_io(&e).is_some() => return Err(e),
             Err(e) => e,
         };
         if !cli.reconnect {
@@ -231,16 +259,21 @@ mod tests {
             }
         });
         let mut served = 0;
-        run(&cli, &Mutex::new(cli.live()), |c| {
-            served += 1;
-            loop {
-                match c.recv() {
-                    Err(e) if served == 1 => return End::Lost(e),
-                    Err(_) => return End::Done,
-                    Ok(_) => {}
+        run_with(
+            &cli,
+            &Mutex::new(cli.live()),
+            &mut PairingStore::in_memory(),
+            |c| {
+                served += 1;
+                loop {
+                    match c.recv() {
+                        Err(e) if served == 1 => return End::Lost(e),
+                        Err(_) => return End::Done,
+                        Ok(_) => {}
+                    }
                 }
-            }
-        })
+            },
+        )
         .unwrap();
         assert_eq!(served, 2);
         phone.join().unwrap();
@@ -255,7 +288,13 @@ mod tests {
             ..Cli::default()
         };
         drop(listener); // nadie escucha
-        assert!(run(&cli, &Mutex::new(cli.live()), |_| End::Done).is_err());
+        assert!(run_with(
+            &cli,
+            &Mutex::new(cli.live()),
+            &mut PairingStore::in_memory(),
+            |_| End::Done
+        )
+        .is_err());
     }
 
     #[derive(Clone, Default)]
@@ -359,7 +398,16 @@ mod tests {
         let (tx, rx) = std::sync::mpsc::channel();
         tx.send(Command::Zoom(2.0)).unwrap();
         tx.send(Command::Mirror(true)).unwrap();
-        assert!(run(&cli, &live, |c| serve(c, &mut sink, &cli, &live, Some(&rx))).is_err());
+        assert!(
+            run_with(&cli, &live, &mut PairingStore::in_memory(), |c| serve(
+                c,
+                &mut sink,
+                &cli,
+                &live,
+                Some(&rx)
+            ))
+            .is_err()
+        );
         assert_eq!(live.lock().unwrap().zoom, Some(2.0)); // el móvil cierra: Lost sin reconexión
         let stats = phone.join().unwrap();
         assert!(
@@ -381,5 +429,39 @@ mod tests {
         let y = &body[6..];
         assert!(y[540 * 1920 + 960].abs_diff(120) <= 4);
         assert!(y[0].abs_diff(120) <= 4);
+    }
+
+    /// Un móvil que pide código: el bucle se detiene en vez de reintentar (gastaría intentos).
+    #[test]
+    fn pairing_error_stops_reconnecting() {
+        let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+        let cli = Cli {
+            addr: listener.local_addr().unwrap().to_string(),
+            ..Cli::default()
+        };
+        let phone = std::thread::spawn(move || {
+            let (mut s, _) = listener.accept().unwrap();
+            assert_eq!(read_type(&mut s), MsgType::Hello.code());
+            let kp = opencam_core::secure::KeyPair::generate().unwrap();
+            let hello = format!(
+                r#"{{"secure":1,"phone_id":"a1b2c3d4","pub":"{}","auth":"code"}}"#,
+                opencam_core::secure::to_hex(&kp.public_bytes())
+            );
+            write_type(&mut s, MsgType::Hello, hello.as_bytes());
+            // Sin segundo accept: si el escritorio reintentara, el test se colgaría en connect.
+            listener
+        });
+        let err = run_with(
+            &cli,
+            &Mutex::new(cli.live()),
+            &mut PairingStore::in_memory(),
+            |_| End::Done,
+        )
+        .unwrap_err();
+        assert_eq!(
+            client::PairingError::from_io(&err),
+            Some(&client::PairingError::NeedCode)
+        );
+        drop(phone.join().unwrap());
     }
 }
