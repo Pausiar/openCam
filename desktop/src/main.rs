@@ -9,6 +9,8 @@ mod settings;
 mod sink;
 #[cfg(target_os = "linux")]
 mod sink_linux;
+#[cfg(target_os = "macos")]
+mod sink_macos;
 #[cfg(windows)]
 mod sink_windows;
 mod transport;
@@ -111,7 +113,10 @@ fn open_sink(cli: &Cli) -> io::Result<Box<dyn FrameSink>> {
             &cli.device,
             cli.width,
             cli.height,
+            cli.fps,
         )?)),
+        #[cfg(target_os = "macos")]
+        SinkKind::Macos => Ok(Box::new(sink_macos::VirtualCamera::open(cli.fps)?)),
         #[cfg(windows)]
         SinkKind::Windows => Ok(Box::new(sink_windows::VirtualCamera::open(
             cli.width, cli.height,

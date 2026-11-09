@@ -17,3 +17,7 @@ android/keystore.properties
 android/keystore/
 *.jks
 *.p12
+
+# Proyecto generado por XcodeGen y salida de xcodebuild
+macos/OpenCamMac.xcodeproj/
+macos/build/

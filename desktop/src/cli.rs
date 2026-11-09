@@ -18,7 +18,7 @@ DIRECCION (o --addr):
 
 OPCIONES:
     --addr <dir>       igual que el argumento posicional
-    --device <ruta>    dispositivo v4l2loopback (Linux) [/dev/video10]
+    --device <ruta>    dispositivo v4l2loopback (Linux); `auto` busca el llamado OpenCam [auto]
     --width <px>       ancho [1920]
     --height <px>      alto [1080]
     --fps <n>          fotogramas por segundo [30]
@@ -31,7 +31,7 @@ OPCIONES:
     --stabilization <on|off>  estabilización de vídeo [lo del móvil]
     --mirror           voltea la imagen en horizontal (modo espejo)
     --no-controls      no leer órdenes en vivo de la consola (zoom, enfoque...)
-    --sink <tipo>      v4l2 (Linux), windows o y4m [v4l2 en Linux, windows en Windows, y4m en macOS]
+    --sink <tipo>      v4l2 (Linux), windows, macos o y4m [el del sistema operativo]
     --output <ruta>    archivo de salida de --sink y4m; `-` es stdout [-]
     --list             lista teléfonos (mDNS) e iPhones USB y sale
     --discover         igual que `wifi`
@@ -48,6 +48,7 @@ Mientras transmite, escribe `ayuda` en la consola para ver las órdenes en vivo.
 pub enum SinkKind {
     V4l2,
     Windows,
+    Macos,
     Y4m,
 }
 
@@ -57,6 +58,8 @@ impl SinkKind {
             Self::V4l2
         } else if cfg!(windows) {
             Self::Windows
+        } else if cfg!(target_os = "macos") {
+            Self::Macos
         } else {
             Self::Y4m
         }
@@ -90,7 +93,7 @@ impl Default for Cli {
     fn default() -> Self {
         Self {
             addr: "auto".into(),
-            device: "/dev/video10".into(),
+            device: "auto".into(),
             width: 1920,
             height: 1080,
             fps: 30,
@@ -184,10 +187,11 @@ impl Cli {
                     cli.sink = match value("--sink")?.as_str() {
                         "v4l2" => SinkKind::V4l2,
                         "windows" => SinkKind::Windows,
+                        "macos" => SinkKind::Macos,
                         "y4m" => SinkKind::Y4m,
                         o => {
                             return Err(CliError::Invalid(format!(
-                                "--sink desconocido: {o} (v4l2|windows|y4m)"
+                                "--sink desconocido: {o} (v4l2|windows|macos|y4m)"
                             )))
                         }
                     }

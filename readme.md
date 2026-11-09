@@ -36,7 +36,7 @@ OpenCam convierte un móvil Android o un iPhone en la cámara web de tu PC. El m
 - **USB o Wi-Fi**: por cable con `adb forward` (Android) o usbmuxd (iPhone), o por la red local. En Wi-Fi el ordenador encuentra el móvil solo (mDNS, `--discover`).
 - **Vídeo H.264 por hardware**: el móvil apenas se calienta y la latencia es baja.
 - **Reconexión automática**: si se corta el cable o la Wi-Fi, el cliente vuelve a conectar sin que reinicies nada.
-- **Cámara virtual de verdad** en Windows (DirectShow) y Linux (v4l2loopback).
+- **Cámara virtual de verdad** en Windows (DirectShow), Linux (v4l2loopback) y macOS (extensión de cámara CoreMediaIO).
 - **Código abierto**: protocolo documentado ([`docs/PROTOCOL.md`](docs/PROTOCOL.md)) y nada de cuentas ni telemetría.
 
 ## Descargas
@@ -49,8 +49,9 @@ Todo sale de la [última release](https://github.com/Pausiar/openCam/releases/la
 | Windows (instalador) | [`opencam-setup-windows-x86_64.exe`](https://github.com/Pausiar/openCam/releases/latest/download/opencam-setup-windows-x86_64.exe) | Compila en CI. Sin probar en Windows. |
 | Windows (cliente suelto) | [`opencam-desktop-windows-x86_64.exe`](https://github.com/Pausiar/openCam/releases/latest/download/opencam-desktop-windows-x86_64.exe) | Igual que el instalador, sin registrar la cámara. |
 | Windows (cámara virtual suelta) | [`opencam-vcam-windows-x86_64.dll`](https://github.com/Pausiar/openCam/releases/latest/download/opencam-vcam-windows-x86_64.dll) | Para registrarla a mano con `regsvr32`. |
-| Linux | [`opencam-desktop-linux-x86_64`](https://github.com/Pausiar/openCam/releases/latest/download/opencam-desktop-linux-x86_64) | Compila y tiene tests. Sin probar con el módulo cargado. |
-| macOS (Apple Silicon) | [`opencam-desktop-macos-arm64-…-solo-y4m`](https://github.com/Pausiar/openCam/releases/latest/download/opencam-desktop-macos-arm64-sin-camara-virtual-solo-y4m) | Sin cámara virtual todavía: saca vídeo Y4M. |
+| Linux (cliente + instalador) | [`opencam-linux-x86_64.tar.gz`](https://github.com/Pausiar/openCam/releases/latest/download/opencam-linux-x86_64.tar.gz) | Compila y tiene tests. Sin probar con el módulo cargado. |
+| Linux (cliente suelto) | [`opencam-desktop-linux-x86_64`](https://github.com/Pausiar/openCam/releases/latest/download/opencam-desktop-linux-x86_64) | Igual, sin el instalador de la cámara. |
+| macOS (Apple Silicon) | [`opencam-desktop-macos-arm64-…-solo-y4m`](https://github.com/Pausiar/openCam/releases/latest/download/opencam-desktop-macos-arm64-sin-camara-virtual-solo-y4m) | Cliente. La cámara virtual (`OpenCam.app`) se compila desde [`macos/`](macos/README.md) con una cuenta de Apple Developer. |
 | iPhone | Sin descarga | Se compila desde [`ios/`](ios/README.md) con Xcode. |
 
 > [!NOTE]
@@ -87,31 +88,26 @@ Todo sale de la [última release](https://github.com/Pausiar/openCam/releases/la
 <summary><b>Linux</b></summary>
 
 ```bash
-# Crea la cámara virtual (una vez por arranque)
-sudo modprobe v4l2loopback video_nr=10 card_label="OpenCam" exclusive_caps=1
+# Una vez: instala v4l2loopback y crea la cámara "OpenCam" (vuelve en cada arranque)
+tar xzf opencam-linux-x86_64.tar.gz && cd opencam-linux-x86_64
+sudo ./install.sh ./opencam-desktop
 
-# Android por USB
-adb forward tcp:4747 tcp:4747
-./opencam-desktop-linux-x86_64 127.0.0.1:4747 --device /dev/video10
-
-# iPhone por USB (necesita usbmuxd)
-./opencam-desktop-linux-x86_64 iphone --device /dev/video10
+# Cada vez: conecta el móvil (USB o Wi-Fi) y arranca
+opencam-desktop
 ```
 
-Luego elige **OpenCam** como cámara en tu app.
+Luego elige **OpenCam** como cámara en tu app. El cliente encuentra solo el dispositivo (`--device auto`).
 
 </details>
 
 <details>
 <summary><b>macOS</b></summary>
 
-Todavía no hay cámara virtual en macOS. El cliente saca el vídeo en formato Y4M, que puedes ver con `ffplay` o meter en OBS:
+1. Compila `OpenCam.app` desde [`macos/`](macos/README.md) con tu cuenta de Apple Developer y cópiala a Aplicaciones.
+2. Ábrela, pulsa **Instalar cámara** y acepta el permiso en Ajustes del Sistema.
+3. Arranca el cliente: `./opencam-desktop-macos-arm64-sin-camara-virtual-solo-y4m`. En tu app de vídeo, elige **OpenCam**.
 
-```bash
-./opencam-desktop-macos-arm64-sin-camara-virtual-solo-y4m 192.168.1.50:4747 | ffplay -
-```
-
-El binario no va firmado: la primera vez ábrelo con clic derecho → **Abrir**.
+Sin `OpenCam.app` el cliente puede sacar el vídeo en Y4M: `... --sink y4m | ffplay -`. El binario no va firmado: la primera vez ábrelo con clic derecho → **Abrir**.
 
 </details>
 
@@ -126,8 +122,8 @@ opencam-desktop 127.0.0.1:4747 --width 1280 --height 720 --fps 60 --bitrate 6000
 | `--width` / `--height` | `1920` × `1080` | Resolución que se pide al móvil. |
 | `--fps` | `30` | Fotogramas por segundo. |
 | `--bitrate` | `8000` | Bitrate de vídeo en kbps. Bájalo si la Wi-Fi va justa. |
-| `--device` | `/dev/video10` | Dispositivo v4l2loopback (Linux). |
-| `--sink` | según el sistema | `v4l2`, `windows` o `y4m`. |
+| `--device` | `auto` | Dispositivo v4l2loopback (Linux); `auto` usa el llamado OpenCam. |
+| `--sink` | según el sistema | `v4l2`, `windows`, `macos` o `y4m`. |
 | `--discover` | | Busca móviles con OpenCam en la red local. |
 | `--list` | | Lista los móviles disponibles (Wi-Fi e iPhone por USB). |
 | `--no-reconnect` | | No reintenta la conexión si se corta. |
@@ -142,11 +138,11 @@ La lista completa está en `opencam-desktop --help`.
 |---|---|---|
 | Android | App Kotlin con Camera2 y MediaCodec. USB (`adb forward`) y Wi-Fi. Anuncio por NSD. | APK firmada y tests unitarios en CI. Sin probar en un móvil real. |
 | iPhone | App Swift con AVFoundation y VideoToolbox. USB (usbmuxd) y Wi-Fi con Bonjour. | Compila en CI para el simulador. Sin probar en un iPhone. |
-| Linux | Cliente Rust que publica en `/dev/videoN` con v4l2loopback. | Compila y tiene tests. Sin probar con el módulo cargado. |
+| Linux | Cliente Rust que publica en `/dev/videoN` con v4l2loopback, e instalador del módulo (`desktop/linux/install.sh`). | Compila y tiene tests. Sin probar con el módulo cargado. |
 | Windows | Cliente Rust, filtro DirectShow (`opencam_vcam.dll`) e instalador NSIS. | Compila en CI. Sin ejecutar en Windows. |
-| macOS | Cliente Rust con salida Y4M. | Compila en CI. Sin cámara virtual. |
+| macOS | Cliente Rust y `OpenCam.app` con una extensión de cámara CoreMediaIO (`macos/`). | Compila en CI (sin firmar). Sin probar en un Mac. |
 
-Más detalle en [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md), [`desktop/README.md`](desktop/README.md) e [`ios/README.md`](ios/README.md).
+Más detalle en [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md), [`desktop/README.md`](desktop/README.md), [`macos/README.md`](macos/README.md) e [`ios/README.md`](ios/README.md).
 
 ## Compilar desde el código
 
@@ -156,6 +152,7 @@ cd desktop && cargo build --release   # cliente de escritorio
 cd desktop && cargo test
 cd android && ./gradlew :app:assembleDebug
 cd ios && xcodegen generate           # luego abre OpenCam.xcodeproj en Xcode (macOS)
+cd macos && xcodegen generate         # cámara virtual de macOS: abre OpenCamMac.xcodeproj
 ```
 
 La cámara virtual de Windows es un crate aparte: `cd desktop/windows-vcam && cargo build --release` (en Windows, toolchain MSVC).

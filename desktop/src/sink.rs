@@ -1,4 +1,4 @@
-//! Interfaz común de los sinks de vídeo y un sink Y4M (archivo/stdout) para macOS y tests.
+//! Interfaz común de los sinks de vídeo y un sink Y4M (archivo/stdout) para pruebas y tuberías.
 
 use std::fs::File;
 use std::io::{self, Write};
@@ -6,6 +6,12 @@ use std::io::{self, Write};
 pub trait FrameSink {
     /// Escribe un frame YUYV (2 bytes por píxel) del tamaño con el que se abrió el sink.
     fn write_yuyv(&mut self, yuyv: &[u8]) -> io::Result<()>;
+
+    /// Tamaño fijo que exige el sink, si no acepta el de `--width`/`--height`.
+    /// La sesión escala (letterbox) a este tamaño.
+    fn fixed_size(&self) -> Option<(usize, usize)> {
+        None
+    }
 }
 
 /// Escribe YUV4MPEG2 (4:2:2 planar) a cualquier `Write`.

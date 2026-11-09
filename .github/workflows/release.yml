@@ -28,13 +28,24 @@ jobs:
         working-directory: desktop
         shell: bash
         run: cargo build --release --locked
-      - name: Preparar artefacto
+      - name: Preparar artefactos
         shell: bash
-        run: cp desktop/target/release/opencam-desktop opencam-desktop-linux-x86_64
+        run: |
+          cp desktop/target/release/opencam-desktop opencam-desktop-linux-x86_64
+          # Paquete con el cliente y el instalador de la cámara virtual (v4l2loopback).
+          mkdir -p opencam-linux-x86_64
+          cp desktop/target/release/opencam-desktop desktop/linux/install.sh opencam-linux-x86_64/
+          chmod +x opencam-linux-x86_64/install.sh opencam-linux-x86_64/opencam-desktop
+          tar czf opencam-linux-x86_64.tar.gz opencam-linux-x86_64
       - uses: actions/upload-artifact@v4
         with:
           name: opencam-desktop-linux-x86_64
           path: opencam-desktop-linux-x86_64
+          if-no-files-found: error
+      - uses: actions/upload-artifact@v4
+        with:
+          name: opencam-linux-x86_64
+          path: opencam-linux-x86_64.tar.gz
           if-no-files-found: error
 
   windows-desktop:
@@ -122,8 +133,10 @@ jobs:
           if-no-files-found: error
 
   macos-desktop:
-    # Sin cámara virtual en macOS: sólo salida Y4M (no hay filtro de cámara).
-    name: Cliente de escritorio (macOS, sin cámara virtual; sólo salida Y4M)
+    # El cliente usa la cámara virtual de OpenCam.app (macos/), que hay que compilar y
+    # firmar con una cuenta de Apple Developer; sin ella, sólo sirve la salida Y4M.
+    # El nombre del artefacto se mantiene porque la web enlaza a él.
+    name: Cliente de escritorio (macOS)
     # Runner Apple Silicon: el binario es arm64 (no corre en Macs Intel).
     runs-on: macos-15
     steps:
