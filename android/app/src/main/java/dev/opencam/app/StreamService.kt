@@ -9,11 +9,9 @@ import android.content.Intent
 import android.content.pm.ServiceInfo
 import android.hardware.camera2.CameraAccessException
 import android.hardware.camera2.CameraCaptureSession
-import android.hardware.camera2.CameraCharacteristics
 import android.hardware.camera2.CameraDevice
 import android.hardware.camera2.CameraManager
 import android.hardware.camera2.CaptureRequest
-import android.media.MediaCodec
 import android.media.MediaCodecList
 import android.media.MediaFormat
 import android.os.Build
@@ -22,12 +20,10 @@ import android.os.HandlerThread
 import android.os.IBinder
 import android.util.Log
 import android.util.Range
-import android.util.Size
 import android.view.Surface
 import androidx.core.app.NotificationCompat
 import org.json.JSONArray
 import org.json.JSONObject
-import kotlin.math.hypot
 
 /**
  * Servicio en primer plano: mantiene la cámara y el servidor OPCM activos
@@ -36,6 +32,7 @@ import kotlin.math.hypot
 class StreamService : Service() {
 
     private lateinit var cameraManager: CameraManager
+    private lateinit var cameras: CameraInfo
     private var cameraThread: HandlerThread? = null
     private var cameraHandler: Handler? = null
     private var device: CameraDevice? = null
@@ -44,6 +41,8 @@ class StreamService : Service() {
     private var server: OpcmServer? = null
     private var nsd: NsdAdvertiser? = null
 
+    // Ajustes elegidos en la app: base de cada CONFIG (el PC puede pedir solo algunos campos).
+    private var local = StreamConfig()
     // Los tres solo se tocan en el hilo de cámara.
     private var config = StreamConfig()
     private var active: StreamConfig? = null // configuración con la que corre la captura
@@ -51,6 +50,9 @@ class StreamService : Service() {
     override fun onCreate() {
         super.onCreate()
         cameraManager = getSystemService(Context.CAMERA_SERVICE) as CameraManager
+        cameras = CameraInfo(cameraManager)
+        local = AppSettings.load(this)
+        config = local
         cameraThread = HandlerThread("opencam-camera").also { it.start() }
         cameraHandler = Handler(cameraThread!!.looper)
         startForegroundCompat()
@@ -59,7 +61,11 @@ class StreamService : Service() {
             onConfig = { json -> applyConfig(json) },
             onStats = { json -> applyStats(json) },
             onKeyframeRequest = { encoder?.requestKeyframe() },
-            onClientChanged = { connected -> ConnectionState.set(connected) },
+            onClientChanged = { connected ->
+                // Un PC nuevo parte de los ajustes del móvil, no de lo que pidió el anterior.
+                if (connected) cameraHandler?.post { config = local }
+                ConnectionState.set(connected)
+            },
         ).also { it.start() }
         nsd = NsdAdvertiser(this).also { it.start() }
     }
@@ -102,7 +108,7 @@ class StreamService : Service() {
     private fun applyConfig(json: String) {
         cameraHandler?.post {
             val new = try {
-                StreamConfig.parse(json, config)
+                StreamConfig.parse(json, local)
             } catch (e: Exception) {
                 server?.sendError("bad_config", "CONFIG inválido")
                 return@post
@@ -143,7 +149,7 @@ class StreamService : Service() {
     private fun openCamera() {
         if (encoder != null) return // ya activo (p. ej. onStartCommand repetido)
         val cfg = config
-        val id = findCameraId(cfg.lens) ?: return fail("camera_error", "no hay cámara")
+        val id = cameras.findCameraId(cfg.lens) ?: return fail("camera_error", "no hay cámara")
         val mime = if (cfg.codec == "h265") MediaFormat.MIMETYPE_VIDEO_HEVC else MediaFormat.MIMETYPE_VIDEO_AVC
 
         val enc = H264Encoder(mime, cfg.width, cfg.height, cfg.fps, cfg.bitrateKbps * 1000) { data, ts, key ->
@@ -195,7 +201,7 @@ class StreamService : Service() {
                         val request = camera.createCaptureRequest(CameraDevice.TEMPLATE_RECORD).apply {
                             addTarget(surface)
                             set(CaptureRequest.CONTROL_AF_MODE, CaptureRequest.CONTROL_AF_MODE_CONTINUOUS_VIDEO)
-                            Caps.pickFpsRange(aeRanges(id), cfg.fps)?.let {
+                            Caps.pickFpsRange(cameras.aeRanges(id), cfg.fps)?.let {
                                 set(CaptureRequest.CONTROL_AE_TARGET_FPS_RANGE, Range(it.first, it.second))
                             }
                         }.build()
@@ -227,32 +233,6 @@ class StreamService : Service() {
         active = null
     }
 
-    private fun aeRanges(id: String): List<Pair<Int, Int>> =
-        cameraManager.getCameraCharacteristics(id)
-            .get(CameraCharacteristics.CONTROL_AE_AVAILABLE_TARGET_FPS_RANGES)
-            ?.map { it.lower to it.upper } ?: emptyList()
-
-    /** Lente ("wide", "ultrawide", "tele") -> id de cámara trasera, por focal equivalente a 35 mm. */
-    private fun backLenses(): Map<String, String> {
-        val out = LinkedHashMap<String, String>()
-        for (id in cameraManager.cameraIdList) {
-            val c = cameraManager.getCameraCharacteristics(id)
-            if (c.get(CameraCharacteristics.LENS_FACING) != CameraCharacteristics.LENS_FACING_BACK) continue
-            val f = c.get(CameraCharacteristics.LENS_INFO_AVAILABLE_FOCAL_LENGTHS)?.firstOrNull()
-            val sz = c.get(CameraCharacteristics.SENSOR_INFO_PHYSICAL_SIZE)
-            val name = if (f != null && sz != null) {
-                Caps.lensName(f * 43.27f / hypot(sz.width, sz.height))
-            } else "wide"
-            out.putIfAbsent(name, id)
-        }
-        return out
-    }
-
-    private fun findCameraId(lens: String): String? {
-        val lenses = backLenses()
-        return lenses[lens] ?: lenses["wide"] ?: lenses.values.firstOrNull()
-    }
-
     private fun supportedCodecs(): List<String> {
         val encoders = MediaCodecList(MediaCodecList.REGULAR_CODECS).codecInfos.filter { it.isEncoder }
         return listOf("h264" to MediaFormat.MIMETYPE_VIDEO_AVC, "h265" to MediaFormat.MIMETYPE_VIDEO_HEVC)
@@ -260,24 +240,15 @@ class StreamService : Service() {
             .map { it.first }
     }
 
-    // shortcut: resoluciones y fps salen de la cámara "wide"; las otras lentes pueden ofrecer menos.
     private fun capsJson(): String {
-        val lenses = backLenses()
-        val wideId = lenses["wide"] ?: lenses.values.firstOrNull()
-        val sizes = wideId?.let {
-            cameraManager.getCameraCharacteristics(it)
-                .get(CameraCharacteristics.SCALER_STREAM_CONFIGURATION_MAP)
-                ?.getOutputSizes(MediaCodec::class.java)
-                ?.filter { s -> s.width * 9 == s.height * 16 && s.height >= 720 }
-                ?.sortedBy { s -> s.width }
-        }.orEmpty().ifEmpty { listOf(Size(1920, 1080)) }
-        val fps = wideId?.let { Caps.fpsList(aeRanges(it)) }.orEmpty().ifEmpty { listOf(30) }
+        val o = cameras.options()
         return JSONObject()
             .put("platform", "android")
             .put("codecs", JSONArray(supportedCodecs().ifEmpty { listOf("h264") }))
-            .put("resolutions", JSONArray(sizes.map { JSONArray().put(it.width).put(it.height) }))
-            .put("fps", JSONArray(fps))
-            .put("lenses", JSONArray(lenses.keys.toList().ifEmpty { listOf("wide") }))
+            .put("resolutions", JSONArray(o.sizes.map { JSONArray().put(it.width).put(it.height) }))
+            .put("fps", JSONArray(o.fps))
+            .put("lenses", JSONArray(o.lenses))
+            .put("current", local.toJson())
             .toString()
     }
 
@@ -297,6 +268,14 @@ data class StreamConfig(
     val codec: String = "h264",
     val lens: String = "wide",
 ) {
+    /** Ajustes locales que se anuncian en CAPS como `current`. */
+    fun toJson(): JSONObject = JSONObject()
+        .put("width", width)
+        .put("height", height)
+        .put("fps", fps)
+        .put("bitrate_kbps", bitrateKbps)
+        .put("lens", lens)
+
     companion object {
         fun parse(json: String, fallback: StreamConfig): StreamConfig {
             val o = JSONObject(json)

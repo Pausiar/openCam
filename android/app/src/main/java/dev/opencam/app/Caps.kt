@@ -16,6 +16,9 @@ object Caps {
         ranges.filter { fps in it.first..it.second }.minByOrNull { it.second - it.first }
             ?: ranges.minByOrNull { abs(it.second - fps) }
 
+    /** Resoluciones que se ofrecen: 16:9 desde 480p (el escritorio escala a su salida). */
+    fun isOffered(width: Int, height: Int): Boolean = width * 9 == height * 16 && height >= 480
+
     /** fps ofrecidos: techos de los rangos AE, a partir de 15. */
     fun fpsList(ranges: List<Pair<Int, Int>>): List<Int> =
         ranges.map { it.second }.filter { it >= 15 }.distinct().sorted()
