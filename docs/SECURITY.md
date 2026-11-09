@@ -21,6 +21,7 @@ oficina, residencia) o es otra app del mismo móvil.
 | 7 | El JSON de ERROR en Android escapaba a mano y no cubría caracteres de control. | Baja | Corregido: se genera con `JSONObject`. |
 | 8 | Las copias de seguridad de Android podían sacar del teléfono las claves de emparejamiento. | Baja | Corregido: `allowBackup="false"`. En iOS las claves van al llavero con `ThisDeviceOnly`. |
 | 9 | Las releases no publicaban sumas de comprobación. | Baja | Corregido: `SHA256SUMS` en cada release. |
+| 10 | El código de 6 dígitos rotaba cada 5 fallos pero sin pausa: alguien en la misma red podía probar códigos sin parar (cada intento acierta 1 de cada 10⁶) y emparejarse en unas horas. | Media | Corregido: cada tanda de 5 fallos bloquea el emparejamiento por código 30 s, duplicándose hasta 10 min (Android e iOS). Los PCs ya emparejados no se ven afectados. |
 
 ## Riesgos que quedan
 

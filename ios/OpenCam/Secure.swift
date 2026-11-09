@@ -145,11 +145,24 @@ enum Secure {
 
 /// Estado de emparejamiento del iPhone: id propio, código visible y claves de los PCs
 /// (en el llavero, solo en este dispositivo). El código cambia tras emparejar y tras
-/// `Secure.maxCodeAttempts` fallos. Se usa solo desde la cola del servidor.
+/// `Secure.maxCodeAttempts` fallos. Cada tanda de fallos bloquea además el emparejamiento por
+/// código un rato que se duplica (30 s, 1 min… hasta 10 min), para que nadie en la red pueda
+/// probar códigos sin parar. Se usa solo desde la cola del servidor.
 final class Pairing {
     private(set) var phoneId: String
     private(set) var code = Secure.newCode()
     private var failures = 0
+    private var lockouts = 0
+    private var lockedUntil: UInt64 = 0
+
+    private static let lockoutBase: UInt64 = 30
+    private static let lockoutMax: UInt64 = 600
+
+    /// Segundos que faltan para volver a aceptar un código (0 = se acepta ya).
+    var lockedForSeconds: UInt64 {
+        let now = DispatchTime.now().uptimeNanoseconds / 1_000_000_000
+        return lockedUntil > now ? lockedUntil - now : 0
+    }
     private var keys: [String: String]
     var onCodeChanged: ((String) -> Void)?
 
@@ -169,12 +182,18 @@ final class Pairing {
 
     func onFailure() {
         failures += 1
-        if failures >= Secure.maxCodeAttempts { rotate() }
+        guard failures >= Secure.maxCodeAttempts else { return }
+        lockouts += 1
+        let wait = min(Pairing.lockoutBase << UInt64(min(lockouts - 1, 10)), Pairing.lockoutMax)
+        lockedUntil = DispatchTime.now().uptimeNanoseconds / 1_000_000_000 + wait
+        rotate()
     }
 
     func onPaired(clientId: String, key: Data) {
         keys[clientId] = Secure.hex(key)
         save()
+        lockouts = 0
+        lockedUntil = 0
         rotate()
     }
 

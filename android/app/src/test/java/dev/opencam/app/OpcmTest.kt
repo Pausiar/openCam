@@ -155,6 +155,38 @@ class OpcmTest {
         }
     }
 
+    /** Fuerza bruta en línea: tras una tanda de fallos el código deja de aceptarse un rato. */
+    @Test
+    fun codeIsLockedAfterFailuresButSavedKeyStillWorks() {
+        val now = java.util.concurrent.atomic.AtomicLong(0)
+        val pairing = Pairing("a1b2c3d4", MemoryPairingKeys(), nowMs = { now.get() })
+        val server = serverFor(pairing)
+        try {
+            val key = TestDesktop(server.localPort, code = pairing.code).use { it.pairingKey }
+            repeat(Secure.MAX_CODE_ATTEMPTS) {
+                val wrong = ((pairing.code.toInt() + 1) % 1_000_000).toString().padStart(6, '0')
+                val err = assertThrows(TestDesktop.Rejected::class.java) {
+                    TestDesktop(server.localPort, code = wrong, clientId = "deadbeef")
+                }
+                assertEquals("bad_code", err.code)
+            }
+            // Bloqueado: ni siquiera el código correcto vale, y no se gastan más intentos.
+            val locked = assertThrows(TestDesktop.Rejected::class.java) {
+                TestDesktop(server.localPort, code = pairing.code, clientId = "deadbeef")
+            }
+            assertEquals("too_many_attempts", locked.code)
+            // El PC ya emparejado sigue entrando con su clave.
+            TestDesktop(server.localPort, savedKey = key).use { assertEquals("key", it.authMode) }
+            // Pasado el plazo, el código nuevo vuelve a servir.
+            now.addAndGet(Pairing.LOCKOUT_BASE_MS)
+            TestDesktop(server.localPort, code = pairing.code, clientId = "deadbeef").use {
+                assertEquals("code", it.authMode)
+            }
+        } finally {
+            server.stop()
+        }
+    }
+
     @Test
     fun legacyDesktopIsAskedToUpdate() {
         val server = serverFor()

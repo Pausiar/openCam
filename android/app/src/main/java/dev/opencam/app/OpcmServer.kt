@@ -208,6 +208,13 @@ class OpcmServer(
             if (!Secure.isId(clientId) || peer == null) return refuse("bad_hello", "HELLO incompleto")
 
             val savedKey = if (req.optString("auth") == "key") pairing.keys.get(clientId) else null
+            if (savedKey == null) {
+                // Tras varios códigos fallidos seguidos se deja de aceptar código durante un rato.
+                val wait = pairing.lockedForMs()
+                if (wait > 0) {
+                    return refuse("too_many_attempts", "Demasiados códigos incorrectos: espera ${(wait + 999) / 1000} s y usa el código nuevo que muestra el móvil")
+                }
+            }
             val code = pairing.code
             val kp = Secure.generateKeyPair()
             val reply = JSONObject()
@@ -234,9 +241,12 @@ class OpcmServer(
                 }
                 return refuse("bad_key", "este PC ya no está emparejado; usa el código")
             }
-            write(Opcm.AUTH, keys.authTag(Secure.Role.PHONE))
+            // Se guarda la clave antes de confirmar: cuando el PC recibe AUTH ya puede reconectar con ella.
             if (savedKey == null) pairing.onPaired(clientId, keys.pairingKey)
-            sock.soTimeout = 0
+            write(Opcm.AUTH, keys.authTag(Secure.Role.PHONE))
+            // El PC manda un PING por segundo: si calla este tiempo, la conexión murió sin cerrarse
+            // (Wi-Fi caída, portátil suspendido) y hay que soltarla para no dar por conectado a nadie.
+            sock.soTimeout = CLIENT_TIMEOUT_MS
             val (tx, rx) = keys.ciphers(Secure.Role.PHONE)
             promote(sock, input, out, tx, rx, seq)
         } catch (e: Exception) {
@@ -335,5 +345,6 @@ class OpcmServer(
         private const val MAX_PENDING_VIDEO = 3
         private const val MAX_PENDING_HANDSHAKES = 4
         private const val HANDSHAKE_TIMEOUT_MS = 10_000
+        private const val CLIENT_TIMEOUT_MS = 10_000
     }
 }
