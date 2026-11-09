@@ -33,7 +33,7 @@ OpenCam convierte un móvil Android o un iPhone en la cámara web de tu PC. El m
 ## Qué ofrece
 
 - **Resolución, fps y bitrate a tu elección**: 1080p, 720p o 480p, a 30 fps o más si tu móvil lo admite, con el bitrate que quieras (`--width`, `--height`, `--fps`, `--bitrate`).
-- **USB o Wi-Fi**: por cable con `adb forward` (Android) o usbmuxd (iPhone), o por la red local. En Wi-Fi el ordenador encuentra el móvil solo (mDNS, `--discover`).
+- **USB o Wi-Fi, sin configurar nada**: el cliente busca el móvil solo. Primero Android por USB (hace él mismo el `adb forward`), luego iPhone por USB (usbmuxd) y luego la Wi-Fi (mDNS).
 - **Vídeo H.264 por hardware**: el móvil apenas se calienta y la latencia es baja.
 - **Reconexión automática**: si se corta el cable o la Wi-Fi, el cliente vuelve a conectar sin que reinicies nada.
 - **Cámara virtual de verdad** en Windows (DirectShow) y Linux (v4l2loopback).
@@ -72,13 +72,16 @@ Todo sale de la [última release](https://github.com/Pausiar/openCam/releases/la
 
 ### 2. Conecta el ordenador
 
+> [!TIP]
+> La búsqueda automática del móvil llega en la versión siguiente a v0.2.1. Con v0.2.1, conecta Android por USB con `adb forward tcp:4747 tcp:4747` y `opencam-desktop 127.0.0.1:4747`.
+
 <details open>
 <summary><b>Windows</b></summary>
 
 1. Ejecuta `opencam-setup-windows-x86_64.exe`. Instala el cliente y registra la cámara virtual **OpenCam Virtual Camera**.
-2. Conecta el móvil:
-   - Por USB (Android): `adb forward tcp:4747 tcp:4747` y luego `opencam-desktop 127.0.0.1:4747`.
-   - Por Wi-Fi: `opencam-desktop 192.168.1.50:4747` (la IP del móvil, en sus ajustes de Wi-Fi), o `opencam-desktop --discover` para buscarlo.
+2. Arranca `opencam-desktop` sin argumentos. Busca el móvil solo: Android por USB, iPhone por USB y después la Wi-Fi.
+   - Para Android por USB activa la **depuración USB** en el móvil y ten instaladas las [platform-tools](https://developer.android.com/tools/releases/platform-tools) (`adb`). Si `adb` no está en el PATH, indícalo con `--adb C:\ruta\adb.exe`.
+   - Para forzar un modo: `opencam-desktop usb`, `opencam-desktop wifi`, `opencam-desktop iphone` o `opencam-desktop 192.168.1.50:4747`.
 3. En Zoom, Meet, OBS… elige **OpenCam Virtual Camera**.
 
 </details>
@@ -90,12 +93,12 @@ Todo sale de la [última release](https://github.com/Pausiar/openCam/releases/la
 # Crea la cámara virtual (una vez por arranque)
 sudo modprobe v4l2loopback video_nr=10 card_label="OpenCam" exclusive_caps=1
 
-# Android por USB
-adb forward tcp:4747 tcp:4747
-./opencam-desktop-linux-x86_64 127.0.0.1:4747 --device /dev/video10
+# Busca el móvil solo: Android por USB (necesita adb), iPhone por USB (usbmuxd) o Wi-Fi
+./opencam-desktop-linux-x86_64 --device /dev/video10
 
-# iPhone por USB (necesita usbmuxd)
-./opencam-desktop-linux-x86_64 iphone --device /dev/video10
+# O fuerza un modo concreto
+./opencam-desktop-linux-x86_64 usb --device /dev/video10
+./opencam-desktop-linux-x86_64 192.168.1.50:4747 --device /dev/video10
 ```
 
 Luego elige **OpenCam** como cámara en tu app.
@@ -108,7 +111,7 @@ Luego elige **OpenCam** como cámara en tu app.
 Todavía no hay cámara virtual en macOS. El cliente saca el vídeo en formato Y4M, que puedes ver con `ffplay` o meter en OBS:
 
 ```bash
-./opencam-desktop-macos-arm64-sin-camara-virtual-solo-y4m 192.168.1.50:4747 | ffplay -
+./opencam-desktop-macos-arm64-sin-camara-virtual-solo-y4m | ffplay -
 ```
 
 El binario no va firmado: la primera vez ábrelo con clic derecho → **Abrir**.
@@ -118,7 +121,7 @@ El binario no va firmado: la primera vez ábrelo con clic derecho → **Abrir**.
 ### 3. Ajusta la calidad
 
 ```bash
-opencam-desktop 127.0.0.1:4747 --width 1280 --height 720 --fps 60 --bitrate 6000
+opencam-desktop --width 1280 --height 720 --fps 60 --bitrate 6000
 ```
 
 | Opción | Por defecto | Qué hace |
@@ -128,8 +131,11 @@ opencam-desktop 127.0.0.1:4747 --width 1280 --height 720 --fps 60 --bitrate 6000
 | `--bitrate` | `8000` | Bitrate de vídeo en kbps. Bájalo si la Wi-Fi va justa. |
 | `--device` | `/dev/video10` | Dispositivo v4l2loopback (Linux). |
 | `--sink` | según el sistema | `v4l2`, `windows` o `y4m`. |
-| `--discover` | | Busca móviles con OpenCam en la red local. |
-| `--list` | | Lista los móviles disponibles (Wi-Fi e iPhone por USB). |
+| (dirección) | `auto` | `auto`, `usb`, `wifi`, `iphone` o `IP:4747`. |
+| `--serial` | | Elige el móvil (serie de Android o UDID de iPhone) si hay varios. |
+| `--adb` | | Ruta a `adb` si no está en el PATH. |
+| `--discover` | | Igual que `wifi`: busca móviles en la red local. |
+| `--list` | | Lista los móviles disponibles (Android e iPhone por USB, y Wi-Fi). |
 | `--no-reconnect` | | No reintenta la conexión si se corta. |
 
 La lista completa está en `opencam-desktop --help`.

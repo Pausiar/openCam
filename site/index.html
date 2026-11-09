@@ -196,7 +196,7 @@
           <article class="card feature">
             <div class="ico" aria-hidden="true"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M5 12.5a10 10 0 0 1 14 0M8.5 16a5 5 0 0 1 7 0"/><circle cx="12" cy="19.5" r="1"/></svg></div>
             <h3>USB o Wi-Fi</h3>
-            <p>Por cable para la menor latencia, o por la red de casa. En Wi-Fi el ordenador encuentra el móvil solo.</p>
+            <p>Por cable para la menor latencia, o por la red de casa. El ordenador encuentra el móvil solo, sin escribir direcciones.</p>
           </article>
           <article class="card feature">
             <div class="ico" aria-hidden="true"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 12a8 8 0 0 1 14-5.3M20 12a8 8 0 0 1-14 5.3"/><path d="M18 3v4h-4M6 21v-4h4"/></svg></div>
@@ -322,33 +322,33 @@
         <div class="panel" role="tabpanel" id="p-windows" aria-labelledby="tab-windows">
           <ol>
             <li>Ejecuta el instalador. Copia el cliente y registra <strong>OpenCam Virtual Camera</strong>.</li>
-            <li>Android por USB: activa la depuración USB y redirige el puerto con <code>adb forward tcp:4747 tcp:4747</code>.</li>
-            <li>Arranca el cliente con la dirección del móvil:</li>
+            <li>Android por USB: activa la <strong>depuración USB</strong> en el móvil e instala las <a href="https://developer.android.com/tools/releases/platform-tools">platform-tools</a> de Android (<code>adb</code>).</li>
+            <li>Arranca el cliente. Busca el móvil solo: Android por USB, iPhone por USB y después la Wi-Fi.</li>
           </ol>
-<pre><code>opencam-desktop 127.0.0.1:4747          # por USB
-opencam-desktop 192.168.1.50:4747       # por Wi-Fi (IP del móvil)
-opencam-desktop --discover              # buscar móviles en la red</code></pre>
+<pre><code>opencam-desktop                         # busca el móvil solo
+opencam-desktop usb                     # solo Android por USB
+opencam-desktop wifi                    # solo por Wi-Fi
+opencam-desktop 192.168.1.50:4747       # una IP concreta</code></pre>
         </div>
 
         <div class="panel" role="tabpanel" id="p-linux" aria-labelledby="tab-linux" hidden>
 <pre><code># Crea la cámara virtual
 sudo modprobe v4l2loopback video_nr=10 card_label="OpenCam" exclusive_caps=1
 
-# Android por USB
-adb forward tcp:4747 tcp:4747
-./opencam-desktop-linux-x86_64 127.0.0.1:4747 --device /dev/video10
+# Busca el móvil solo: Android por USB (adb), iPhone por USB (usbmuxd) o Wi-Fi
+./opencam-desktop-linux-x86_64 --device /dev/video10
 
-# iPhone por USB (necesita usbmuxd)
-./opencam-desktop-linux-x86_64 iphone --device /dev/video10</code></pre>
+# O fuerza un modo: usb, wifi, iphone o IP:4747
+./opencam-desktop-linux-x86_64 wifi --device /dev/video10</code></pre>
         </div>
 
         <div class="panel" role="tabpanel" id="p-mac" aria-labelledby="tab-mac" hidden>
           <p>Aún no hay cámara virtual en macOS. El cliente saca vídeo Y4M que puedes ver o capturar:</p>
-<pre><code>./opencam-desktop-macos-arm64-sin-camara-virtual-solo-y4m 192.168.1.50:4747 | ffplay -</code></pre>
+<pre><code>./opencam-desktop-macos-arm64-sin-camara-virtual-solo-y4m | ffplay -</code></pre>
         </div>
 
         <h3 style="margin-top:36px">Ajusta la calidad</h3>
-        <p class="muted">Pásale estas opciones al cliente. Por ejemplo: <code>opencam-desktop 127.0.0.1:4747 --width 1280 --height 720 --fps 60 --bitrate 6000</code></p>
+        <p class="muted">Pásale estas opciones al cliente. Por ejemplo: <code>opencam-desktop --width 1280 --height 720 --fps 60 --bitrate 6000</code></p>
         <div class="table-wrap">
           <table>
             <thead><tr><th>Opción</th><th>Por defecto</th><th>Qué hace</th></tr></thead>
@@ -356,7 +356,9 @@ adb forward tcp:4747 tcp:4747
               <tr><td><code>--width</code> <code>--height</code></td><td>1920 × 1080</td><td>Resolución que se pide al móvil.</td></tr>
               <tr><td><code>--fps</code></td><td>30</td><td>Fotogramas por segundo (si el móvil los admite).</td></tr>
               <tr><td><code>--bitrate</code></td><td>8000 kbps</td><td>Calidad del vídeo. Bájalo si la Wi-Fi va justa.</td></tr>
-              <tr><td><code>--discover</code></td><td></td><td>Busca móviles con OpenCam en la red local.</td></tr>
+              <tr><td>(dirección)</td><td>auto</td><td><code>auto</code>, <code>usb</code>, <code>wifi</code>, <code>iphone</code> o <code>IP:4747</code>.</td></tr>
+              <tr><td><code>--serial</code></td><td></td><td>Elige el móvil si hay varios conectados.</td></tr>
+              <tr><td><code>--adb</code></td><td></td><td>Ruta a <code>adb</code> si no está en el PATH.</td></tr>
               <tr><td><code>--no-reconnect</code></td><td></td><td>No reintenta si se corta la conexión.</td></tr>
             </tbody>
           </table>
@@ -373,7 +375,7 @@ adb forward tcp:4747 tcp:4747
         </details>
         <details>
           <summary>¿USB o Wi-Fi?</summary>
-          <p>USB da menos retraso y carga el móvil a la vez. Wi-Fi es más cómodo; si ves cortes, baja el bitrate con <code>--bitrate</code>.</p>
+          <p>USB da menos retraso y carga el móvil a la vez (en Android necesita la depuración USB activada). Wi-Fi es más cómodo; si ves cortes, baja el bitrate con <code>--bitrate</code>.</p>
         </details>
         <details>
           <summary>¿Puedo bloquear la pantalla del móvil?</summary>
