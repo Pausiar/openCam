@@ -205,6 +205,10 @@ jobs:
         with:
           path: dist
           merge-multiple: true
+      - name: Sumas SHA-256
+        # Permite comprobar que la descarga no se corrompió ni se manipuló: sha256sum -c SHA256SUMS
+        shell: bash
+        run: cd dist && sha256sum -- * > SHA256SUMS && cat SHA256SUMS
       - name: Crear o actualizar la release
         shell: bash
         env:

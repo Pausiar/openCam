@@ -81,7 +81,9 @@ class MainActivity : Activity() {
             !running -> "Parado. Conecta el PC con adb forward tcp:4747 tcp:4747"
             ConnectionState.connected -> "Conectado al ordenador"
             else -> "Esperando al ordenador en el puerto ${Opcm.DEFAULT_PORT}"
-        }
+        } + (ConnectionState.pairingCode
+            ?.takeIf { running && !ConnectionState.connected }
+            ?.let { "\nCódigo de emparejamiento: ${it.take(3)} ${it.drop(3)}" } ?: "")
     }
 
     companion object {

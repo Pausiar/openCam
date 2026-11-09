@@ -58,4 +58,6 @@ android {
 dependencies {
     implementation("androidx.core:core-ktx:1.13.1")
     testImplementation("junit:junit:4.13.2")
+    // org.json real en la JVM (el de android.jar es un stub en los tests unitarios).
+    testImplementation("org.json:json:20240303")
 }

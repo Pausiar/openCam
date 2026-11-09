@@ -39,8 +39,6 @@ jobs:
         shell: bash
         run: cargo test --locked
       - name: Formato (núcleo y escritorio)
-        # Aviso por ahora; quitar continue-on-error cuando el código esté formateado.
-        continue-on-error: true
         shell: bash
         run: |
           (cd core && cargo fmt --check)

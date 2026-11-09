@@ -12,6 +12,7 @@ enum OPCM {
         case hello = 0x01
         case caps = 0x02
         case config = 0x03
+        case auth = 0x04
         case video = 0x10
         case ping = 0x20
         case pong = 0x21

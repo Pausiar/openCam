@@ -8,6 +8,7 @@ pub mod frame_queue;
 pub mod metrics;
 pub mod protocol;
 pub mod reconnect;
+pub mod secure;
 pub mod shared_frame;
 
 pub use bitrate::{BitrateConfig, BitrateController};

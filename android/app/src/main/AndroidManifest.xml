@@ -12,6 +12,7 @@
 
     <application
         android:label="OpenCam"
+        android:allowBackup="false"
         android:supportsRtl="true"
         android:theme="@android:style/Theme.DeviceDefault.NoActionBar">
 
