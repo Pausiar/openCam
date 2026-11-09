@@ -15,6 +15,7 @@ class MainActivity : Activity() {
 
     private lateinit var status: TextView
     private lateinit var toggle: Button
+    private lateinit var advanced: AdvancedControls
 
     private val running get() = ConnectionState.running
 
@@ -23,6 +24,7 @@ class MainActivity : Activity() {
         setContentView(R.layout.activity_main)
         status = findViewById(R.id.status)
         toggle = findViewById(R.id.toggle)
+        advanced = AdvancedControls(findViewById(R.id.advanced))
 
         toggle.setOnClickListener {
             if (ConnectionState.running) stopStream() else requestPermissionsAndStart()
@@ -32,11 +34,13 @@ class MainActivity : Activity() {
     override fun onResume() {
         super.onResume()
         ConnectionState.listener = { runOnUiThread { refresh() } }
+        advanced.onResume { runOnUiThread(it) }
         refresh()
     }
 
     override fun onPause() {
         ConnectionState.listener = null
+        advanced.onPause()
         super.onPause()
     }
 

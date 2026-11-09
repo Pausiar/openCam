@@ -4,6 +4,7 @@ mod convert;
 mod decoder;
 mod discovery;
 mod session;
+mod settings;
 mod sink;
 #[cfg(target_os = "linux")]
 mod sink_linux;
@@ -13,10 +14,13 @@ mod sink_windows;
 mod usbmuxd;
 
 use std::env;
-use std::io;
+use std::io::{self, BufRead};
+use std::sync::mpsc::{self, Receiver};
+use std::sync::Mutex;
 use std::time::Duration;
 
 use cli::{Cli, CliError, SinkKind};
+use settings::Command;
 use sink::FrameSink;
 
 fn main() -> io::Result<()> {
@@ -53,7 +57,32 @@ fn main() -> io::Result<()> {
     }
 
     let mut sink = open_sink(&cli)?;
-    session::run(&cli, |client| session::serve(client, &mut *sink, &cli))
+    let live = Mutex::new(cli.live());
+    let commands = cli.controls.then(spawn_console);
+    session::run(&cli, &live, |client| {
+        session::serve(client, &mut *sink, &cli, &live, commands.as_ref())
+    })
+}
+
+/// Lee órdenes en vivo (zoom, enfoque...) de stdin. stdout puede ser el Y4M; stdin queda libre.
+fn spawn_console() -> Receiver<Command> {
+    let (tx, rx) = mpsc::channel();
+    eprintln!("Escribe `ayuda` y pulsa Intro para ver los ajustes en vivo.");
+    std::thread::spawn(move || {
+        for line in io::stdin().lock().lines() {
+            let Ok(line) = line else { break };
+            match Command::parse(&line) {
+                Ok(Some(cmd)) => {
+                    if tx.send(cmd).is_err() {
+                        break;
+                    }
+                }
+                Ok(None) => {}
+                Err(msg) => eprintln!("{msg}"),
+            }
+        }
+    });
+    rx
 }
 
 fn list() -> io::Result<()> {
