@@ -30,7 +30,7 @@ targets:
         codeSign: true
         copy:
           destination: wrapper
-          subpath: $(CONTENTS_FOLDER_PATH)/Library/SystemExtensions
+          subpath: Contents/Library/SystemExtensions
       - sdk: CoreMediaIO.framework
       - sdk: SystemExtensions.framework
     settings:
