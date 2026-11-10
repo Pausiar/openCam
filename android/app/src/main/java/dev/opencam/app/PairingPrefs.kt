@@ -39,11 +39,14 @@ object PairingPrefs {
     fun pairing(context: Context): Pairing {
         val keys = PrefsPairingKeys(context.applicationContext)
         return Pairing(keys.phoneId(), keys).also { p ->
-            ConnectionState.pairingCode = p.code
             p.onCodeChanged = { code ->
                 ConnectionState.pairingCode = code
                 ConnectionState.listener?.invoke(ConnectionState.connected)
             }
+            // La pantalla ya se pintó al pulsar Iniciar, antes de que el servicio tuviera código:
+            // hay que avisarla también del primero, no solo de los cambios.
+            ConnectionState.pairingCode = p.code
+            ConnectionState.listener?.invoke(ConnectionState.connected)
         }
     }
 }
