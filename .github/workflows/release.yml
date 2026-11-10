@@ -27,6 +27,9 @@ jobs:
       - name: Compilar
         working-directory: desktop
         shell: bash
+        env:
+          # Versión que muestra la ventana (vacía al lanzarlo a mano: usa la de Cargo.toml).
+          OPENCAM_VERSION: ${{ startsWith(github.ref, 'refs/tags/v') && github.ref_name || '' }}
         run: cargo build --release --locked
       - name: Preparar artefacto
         shell: bash
@@ -49,6 +52,9 @@ jobs:
       - name: Compilar
         working-directory: desktop
         shell: bash
+        env:
+          # Versión que muestra la ventana (vacía al lanzarlo a mano: usa la de Cargo.toml).
+          OPENCAM_VERSION: ${{ startsWith(github.ref, 'refs/tags/v') && github.ref_name || '' }}
         run: cargo build --release --locked
       - name: Preparar artefacto
         shell: bash
@@ -162,6 +168,9 @@ jobs:
       - name: Compilar
         working-directory: desktop
         shell: bash
+        env:
+          # Versión que muestra la ventana (vacía al lanzarlo a mano: usa la de Cargo.toml).
+          OPENCAM_VERSION: ${{ startsWith(github.ref, 'refs/tags/v') && github.ref_name || '' }}
         run: cargo build --release --locked
       - name: Preparar artefacto
         shell: bash
@@ -228,6 +237,10 @@ jobs:
     permissions:
       contents: write
     steps:
+      # Solo hace falta docs/releases/ (las notas de cada versión).
+      - uses: actions/checkout@v4
+        with:
+          sparse-checkout: docs/releases
       - uses: actions/download-artifact@v4
         with:
           path: dist
@@ -244,7 +257,16 @@ jobs:
           TAG: ${{ github.ref_name }}
         run: |
           set -euo pipefail
+          # Si hay notas escritas para esta versión (docs/releases/<tag>.md) sustituyen a la
+          # lista automática de PR, también si la release ya se creó desde la web de GitHub.
+          notes="docs/releases/$TAG.md"
           if ! gh release view "$TAG" >/dev/null 2>&1; then
-            gh release create "$TAG" --title "OpenCam $TAG" --generate-notes
+            if [ -f "$notes" ]; then
+              gh release create "$TAG" --title "OpenCam $TAG" --notes-file "$notes"
+            else
+              gh release create "$TAG" --title "OpenCam $TAG" --generate-notes
+            fi
+          elif [ -f "$notes" ]; then
+            gh release edit "$TAG" --title "OpenCam $TAG" --notes-file "$notes"
           fi
           gh release upload "$TAG" dist/* --clobber

@@ -6,10 +6,12 @@ Cliente de escritorio: se conecta al móvil por el protocolo OPCM (ver `docs/PRO
 
 Sin argumentos, `opencam-desktop` abre una ventana (egui) en Windows, Linux y macOS:
 
-- **Conexión**: automática (USB y luego Wi-Fi), Wi-Fi (IP del móvil o búsqueda mDNS), Android por USB o iPhone por USB.
-- **Vídeo**: resolución de la cámara virtual (1920x1080, 1280x720, 640x480), fps y bitrate, o *Usar la calidad elegida en el móvil* (el PC solo pide el códec).
-- **Salida**: cámara virtual (v4l2loopback en Linux, DirectShow en Windows), archivo Y4M o solo vista previa (lo normal en macOS).
-- Botón **Conectar/Desconectar**, estado, fps, latencia, bitrate y vista previa del vídeo.
+- **Inicio**: vista previa (con resolución, fps y latencia, y un botón para cambiar de cámara), tarjeta de **Conexión** (Auto, Wi-Fi con búsqueda mDNS, USB para Android o iPhone, o IP manual) con el código de emparejamiento y el botón **Conectar/Desconectar**, ajustes rápidos (resolución de la cámara virtual 1920x1080, 1280x720 o 640x480, fps, cámara, voltear imagen, estabilización) y **Ajustes avanzados** plegables (zoom, bitrate, *Usar la calidad elegida en el móvil*, reconexión).
+- **Dispositivos**: móviles encontrados en la red e instrucciones para el cable.
+- **Ajustes**: salida (cámara virtual v4l2loopback o DirectShow, archivo Y4M o solo vista previa, lo normal en macOS) y el registro de la conexión.
+- **Acerca de**: versión y enlaces.
+
+La interfaz usa las fuentes de `assets/fonts/` (Inter e iconos, incrustadas en el binario). La versión que muestra sale de `OPENCAM_VERSION` al compilar (la release pone el tag) o de `Cargo.toml`.
 
 Los ajustes se guardan en `%APPDATA%\OpenCam\settings.txt` (Windows), `~/Library/Application Support/OpenCam/settings.txt` (macOS) o `~/.config/opencam/settings.txt` (Linux).
 
