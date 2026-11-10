@@ -79,7 +79,7 @@ El filtro es un crate independiente: `cargo build` en `desktop/` no lo compila.
 
 ### Instalador (lo recomendado)
 
-El workflow de release genera `opencam-setup-windows-x86_64.exe` con NSIS (script en `desktop/windows-installer/`). Copia el cliente y la DLL en `C:\Program Files\OpenCam`, registra la cámara virtual y deja accesos directos; al desinstalar, la desregistra.
+El workflow de release genera `opencam-setup-windows-x86_64.exe` con NSIS (script en `desktop/windows-installer/`). Copia el cliente y las dos DLL (`opencam_vcam.dll` de 64 bits y `opencam_vcam_x86.dll` de 32 bits) en `C:\Program Files\OpenCam`, registra las dos y deja accesos directos; al desinstalar, las desregistra. Hacen falta las dos: cada app sólo carga la DLL de su arquitectura, así que una app de 32 bits no ve una cámara registrada sólo en 64 bits.
 
 Para compilarlo a mano, con las dos piezas dentro de `payload\`:
 
@@ -94,19 +94,28 @@ Con Rust (toolchain MSVC) en Windows:
 
 ```powershell
 cd desktop\windows-vcam
-cargo build --release
+rustup target add x86_64-pc-windows-msvc i686-pc-windows-msvc
+cargo build --release --target x86_64-pc-windows-msvc
+cargo build --release --target i686-pc-windows-msvc
 ```
 
-La DLL queda en `desktop\windows-vcam\target\release\opencam_vcam.dll`.
+Las DLL quedan en `target\x86_64-pc-windows-msvc\release\opencam_vcam.dll` (64 bits) y `target\i686-pc-windows-msvc\release\opencam_vcam.dll` (32 bits).
 
 ### Registrar y quitar (como administrador)
 
 ```powershell
-regsvr32 "C:\ruta\a\opencam_vcam.dll"
-regsvr32 /u "C:\ruta\a\opencam_vcam.dll"
+# 64 bits
+C:\Windows\System32\regsvr32.exe "C:\ruta\a\opencam_vcam.dll"
+# 32 bits
+C:\Windows\SysWOW64\regsvr32.exe "C:\ruta\a\opencam_vcam_x86.dll"
+# Quitar: lo mismo con /u
 ```
 
-Las apps de 32 bits necesitan una DLL de 32 bits registrada con `C:\Windows\SysWOW64\regsvr32.exe`. El registro escribe en `HKCR\CLSID` y en la categoría de fuentes de vídeo (`{860BB310-5D01-11D0-BD3B-00A0C911CE86}`).
+El registro escribe el servidor COM en `HKLM\SOFTWARE\Classes\CLSID` (la DLL de 32 bits, en `WOW6432Node`) y añade el filtro a la categoría de cámaras (`{860BB310-5D01-11D0-BD3B-00A0C911CE86}`) con `IFilterMapper2::RegisterFilter`, que guarda también `FilterData` (pin de salida de vídeo YUY2 de captura) e invalida la caché del enumerador de dispositivos. Es lo mismo que hace OBS Virtual Camera.
+
+`windows-vcam/test-register.ps1` registra las dos DLL, comprueba el registro, lista las cámaras DirectShow con ffmpeg y las desregistra. CI lo ejecuta en un runner de Windows.
+
+Si una app ya estaba abierta al instalar (Discord, por ejemplo), ciérrala del todo (también de la bandeja del sistema) y vuelve a abrirla para que vuelva a listar las cámaras.
 
 Después, arranca el cliente y elige **OpenCam Virtual Camera** en la app que use la cámara:
 
@@ -118,9 +127,9 @@ En Windows `--device` se ignora.
 
 ### Limitaciones
 
-- Formatos YUY2 a 30 fps en 1080p, 720p y 480p (`IAMStreamConfig`); si la memoria compartida trae otra resolución, el filtro escala con letterbox. No hay `FilterData`, y `SetFormat` no reconecta un pin ya conectado.
-- No es Media Foundation Virtual Camera; las apps que sólo listan cámaras con Media Foundation no la verán.
-- CI compila la DLL y el instalador, pero nadie la ha registrado ni ejecutado en Windows: el código no se ha probado.
+- Formatos YUY2 a 30 fps en 1080p, 720p y 480p (`IAMStreamConfig`); si la memoria compartida trae otra resolución, el filtro escala con letterbox. `SetFormat` no reconecta un pin ya conectado.
+- Es una cámara DirectShow, como OBS Virtual Camera: la ven Discord, Zoom, OBS, Chrome/Edge, Teams y la mayoría de apps de escritorio. No es una Media Foundation Virtual Camera, así que no sale en *Configuración > Cámaras* ni en la app Cámara de Windows ni en apps UWP.
+- CI registra y lista la cámara en un Windows real, pero no se ha probado con vídeo en una app.
 
 ## macOS
 
