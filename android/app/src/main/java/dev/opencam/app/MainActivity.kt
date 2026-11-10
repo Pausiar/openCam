@@ -171,10 +171,17 @@ class MainActivity : Activity() {
         forget.isEnabled = !running
 
         // Código de emparejamiento: el PC lo pide solo la primera vez.
-        val code = ConnectionState.pairingCode?.takeIf { running && !ConnectionState.connected }
+        // Siempre visible: parado avisa de que sale al iniciar; en marcha muestra el código
+        // (también conectado, para emparejar otro PC).
+        val code = ConnectionState.pairingCode?.takeIf { running }
+        pairingLabel.visibility = View.VISIBLE
         pairing.visibility = if (code != null) View.VISIBLE else View.GONE
-        pairingLabel.visibility = pairing.visibility
         pairing.text = code?.let { "${it.take(3)} ${it.drop(3)}" } ?: ""
+        pairingLabel.text = when {
+            !running -> "El código de emparejamiento aparece aquí al pulsar Iniciar."
+            code == null -> "Preparando el código de emparejamiento…"
+            else -> "Código de emparejamiento (escríbelo en el PC la primera vez)"
+        }
 
         val port = Opcm.DEFAULT_PORT
         val addrs = NetInfo.addresses(this)
