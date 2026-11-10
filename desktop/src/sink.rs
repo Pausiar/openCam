@@ -1,7 +1,7 @@
 //! Interfaz común de los sinks de vídeo y un sink Y4M (archivo/stdout) para macOS y tests.
 
 use std::fs::File;
-use std::io::{self, Write};
+use std::io::{self, IsTerminal, Write};
 
 pub trait FrameSink {
     /// Escribe un frame YUYV (2 bytes por píxel) del tamaño con el que se abrió el sink.
@@ -41,6 +41,14 @@ impl Y4mSink<Box<dyn Write>> {
     /// `-` es stdout; cualquier otra ruta es un archivo nuevo.
     pub fn open(path: &str, width: usize, height: usize, fps: u32) -> io::Result<Self> {
         let out: Box<dyn Write> = if path == "-" {
+            // Vídeo sin comprimir en la terminal: la llena de basura y puede colgarla.
+            if io::stdout().is_terminal() {
+                return Err(io::Error::new(
+                    io::ErrorKind::InvalidInput,
+                    "la salida Y4M va a stdout y stdout es la terminal: redirígela \
+                     (p. ej. `| ffplay -`) o usa --output <archivo>",
+                ));
+            }
             Box::new(io::stdout().lock())
         } else {
             Box::new(io::BufWriter::new(File::create(path)?))

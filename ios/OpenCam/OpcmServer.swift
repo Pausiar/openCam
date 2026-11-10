@@ -13,6 +13,8 @@ final class OpcmServer {
     static let port: UInt16 = 4747
     private static let maxPendingHandshakes = 4
     private static let handshakeTimeout: TimeInterval = 10
+    /// Frames de vídeo que pueden esperar en el socket (~100 ms a 30 fps) antes de descartar.
+    private static let maxPendingVideo = 3
 
     /// Una conexión TCP y su estado de handshake/cifrado.
     private final class Peer {
@@ -29,6 +31,10 @@ final class OpcmServer {
         var keys: Secure.SessionKeys?
         var tx: Secure.GcmCipher?
         var rx: Secure.GcmCipher?
+        /// Frames de vídeo entregados a la conexión y aún sin salir por la red.
+        var pendingVideo = 0
+        /// Tras un descarte no se envían P-frames hasta el siguiente keyframe.
+        var waitingKey = false
         init(_ conn: NWConnection) { self.conn = conn }
     }
 
@@ -87,10 +93,30 @@ final class OpcmServer {
     }
 
     /// Envía un access unit H.264 (Annex-B) como VIDEO. Llamar desde cualquier hilo.
+    /// Si la red va más lenta que la cámara, los frames no se acumulan (crecerían la latencia y
+    /// la memoria sin límite): se descartan hasta el siguiente keyframe y se pide uno.
     func sendVideo(_ accessUnit: Data, keyframe: Bool, timestampUs: UInt64) {
         queue.async { [weak self] in
             guard let self, let p = self.active else { return }
-            self.send(p, .video, flags: keyframe ? OPCM.keyframeFlag : 0, timestampUs: timestampUs, payload: accessUnit)
+            if p.pendingVideo >= Self.maxPendingVideo {
+                p.waitingKey = true
+                return
+            }
+            if keyframe {
+                p.waitingKey = false
+            } else if p.waitingKey {
+                return
+            }
+            p.pendingVideo += 1
+            let data = self.frame(p, .video, flags: keyframe ? OPCM.keyframeFlag : 0,
+                                  timestampUs: timestampUs, payload: accessUnit)
+            // El aviso de envío llega en `queue` (la cola de la conexión).
+            p.conn.send(content: data, completion: .contentProcessed { [weak self, weak p] _ in
+                guard let self, let p else { return }
+                p.pendingVideo -= 1
+                // Cola vacía tras un descarte: se reanuda cuanto antes con un keyframe.
+                if p.waitingKey, p.pendingVideo == 0, self.active === p { self.onKeyframeRequest?() }
+            })
         }
     }
 
@@ -202,6 +228,15 @@ final class OpcmServer {
             return
         }
         let saved = (req["auth"] as? String) == "key" ? pairing.key(for: clientId) : nil
+        if saved == nil {
+            // Tras varios códigos fallidos seguidos se deja de aceptar código durante un rato.
+            let wait = pairing.lockedForSeconds
+            if wait > 0 {
+                close(peer, code: "too_many_attempts",
+                      message: "Demasiados códigos incorrectos: espera \(wait) s y usa el código nuevo que muestra el iPhone")
+                return
+            }
+        }
         let psk = saved ?? Secure.codePsk(pairing.code)!
         let kp = P256Key()
         let reply = Self.json(["proto": 1, "platform": "ios", "name": deviceName, "secure": 1,
@@ -231,8 +266,9 @@ final class OpcmServer {
             }
             return
         }
-        sendPlain(peer, .auth, payload: keys.authTag(.phone))
+        // Se guarda la clave antes de confirmar: cuando el PC recibe AUTH ya puede reconectar con ella.
         if !peer.usingSavedKey { pairing.onPaired(clientId: peer.clientId, key: keys.pairingKey) }
+        sendPlain(peer, .auth, payload: keys.authTag(.phone))
         (peer.tx, peer.rx) = keys.ciphers(.phone)
         peer.phase = .ready
         promote(peer)

@@ -19,6 +19,11 @@ use opencam_core::secure::{
 
 use crate::pairing::PairingStore;
 
+/// Sin datos del móvil durante este tiempo, la conexión se da por perdida. El móvil responde un
+/// PONG por segundo, así que solo se cumple si el enlace murió sin cerrarse (Wi-Fi caída, móvil
+/// fuera de alcance, app congelada): sin este plazo, `recv` esperaría minutos al timeout de TCP.
+pub const SESSION_IDLE_TIMEOUT: Duration = Duration::from_secs(6);
+
 pub struct Message {
     pub msg_type: u8,
     pub flags: u16,
@@ -162,7 +167,7 @@ impl Client {
     /// Ante una versión no soportada envía ERROR `unsupported_version` y cierra la conexión.
     pub fn recv(&mut self) -> io::Result<Message> {
         let mut raw = [0u8; HEADER_LEN];
-        self.reader.read_exact(&mut raw)?;
+        self.reader.read_exact(&mut raw).map_err(idle_error)?;
         let header = match Header::decode(&raw) {
             Ok(h) => h,
             Err(e) => {
@@ -186,7 +191,7 @@ impl Client {
             ));
         }
         let mut payload = vec![0u8; header.payload_len as usize];
-        self.reader.read_exact(&mut payload)?;
+        self.reader.read_exact(&mut payload).map_err(idle_error)?;
         if let Some(c) = self.rx_cipher.as_mut() {
             payload = c
                 .open(&raw, &payload)
@@ -198,6 +203,17 @@ impl Client {
             timestamp_us: header.timestamp_us,
             payload,
         })
+    }
+}
+
+/// Un plazo de lectura vencido llega como `WouldBlock` (Unix) o `TimedOut` (Windows) con un
+/// texto del sistema poco claro; se unifica en un `TimedOut` que explica qué pasa.
+fn idle_error(e: io::Error) -> io::Error {
+    match e.kind() {
+        io::ErrorKind::WouldBlock | io::ErrorKind::TimedOut => {
+            io::Error::new(io::ErrorKind::TimedOut, "el móvil dejó de responder")
+        }
+        _ => e,
     }
 }
 
@@ -317,7 +333,8 @@ pub fn handshake_with(
 ) -> io::Result<String> {
     client.reader.set_read_timeout(Some(timeout))?;
     let result = handshake_inner(client, config_json, pairing);
-    let _ = client.reader.set_read_timeout(None);
+    // Durante la sesión el plazo sigue activo, más holgado: detecta un móvil que desaparece.
+    let _ = client.reader.set_read_timeout(Some(SESSION_IDLE_TIMEOUT));
     client.max_payload = MAX_PAYLOAD;
     result.map_err(|e| match e.kind() {
         io::ErrorKind::WouldBlock | io::ErrorKind::TimedOut => {
@@ -348,7 +365,8 @@ fn phone_error(payload: &[u8]) -> io::Error {
     match json_field(&body, "code") {
         Some("bad_code") => PairingError::BadCode.into_io(),
         Some("bad_key") => PairingError::KeyMismatch.into_io(),
-        Some("pairing_required") => {
+        // `too_many_attempts`: el móvil bloquea el código un rato tras varios fallos seguidos.
+        Some("pairing_required" | "too_many_attempts") => {
             PairingError::Rejected(json_field(&body, "message").unwrap_or("").into()).into_io()
         }
         _ => io::Error::other(format!("el móvil respondió ERROR: {body}")),
@@ -541,6 +559,27 @@ mod tests {
         let err = handshake(&mut client, "{}", Duration::from_millis(200)).unwrap_err();
         assert_eq!(err.kind(), io::ErrorKind::TimedOut);
         assert!(t.elapsed() < Duration::from_millis(550));
+        phone.join().unwrap();
+    }
+
+    /// Un móvil que deja de enviar sin cerrar (Wi-Fi caída) no bloquea `recv` para siempre.
+    #[test]
+    fn silent_phone_after_handshake_times_out() {
+        let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+        let addr = listener.local_addr().unwrap();
+        let phone = thread::spawn(move || {
+            let (s, _) = listener.accept().unwrap();
+            thread::sleep(Duration::from_millis(400));
+            drop(s);
+        });
+        let mut client = Client::connect(addr, Duration::from_secs(2)).unwrap();
+        client
+            .reader
+            .set_read_timeout(Some(Duration::from_millis(100)))
+            .unwrap();
+        let err = client.recv().err().expect("debía vencer el plazo");
+        assert_eq!(err.kind(), io::ErrorKind::TimedOut);
+        assert!(err.to_string().contains("dejó de responder"), "{err}");
         phone.join().unwrap();
     }
 

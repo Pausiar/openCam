@@ -17,10 +17,12 @@ import android.hardware.camera2.CaptureRequest
 import android.media.MediaCodec
 import android.media.MediaCodecList
 import android.media.MediaFormat
+import android.net.wifi.WifiManager
 import android.os.Build
 import android.os.Handler
 import android.os.HandlerThread
 import android.os.IBinder
+import android.os.PowerManager
 import android.util.Log
 import android.util.Range
 import android.util.Size
@@ -46,6 +48,8 @@ class StreamService : Service() {
     private var captureSurface: Surface? = null
     private var server: OpcmServer? = null
     private var nsd: NsdAdvertiser? = null
+    private var wakeLock: PowerManager.WakeLock? = null
+    private var wifiLock: WifiManager.WifiLock? = null
 
     // Solo se tocan en el hilo de cámara. Arranca con lo elegido en la app (AdvancedSettings).
     private var config = AdvancedSettings.current
@@ -76,7 +80,9 @@ class StreamService : Service() {
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
         startCapture()
-        return START_STICKY
+        // Sin reinicio automático: Android 14+ no deja arrancar un servicio de cámara en segundo
+        // plano, así que si el sistema mata el proceso el usuario vuelve a pulsar Iniciar.
+        return START_NOT_STICKY
     }
 
     override fun onBind(intent: Intent?): IBinder? = null
@@ -88,6 +94,7 @@ class StreamService : Service() {
         // El estado de captura es del hilo de cámara: se libera allí y después se cierra el hilo.
         cameraHandler?.post { stopCapture() }
         cameraThread?.quitSafely()
+        releaseLocks()
         ConnectionState.running = false
         ConnectionState.pairingCode = null
         ConnectionState.set(false)
@@ -109,6 +116,37 @@ class StreamService : Service() {
         } else {
             startForeground(1, notification)
         }
+        // La pantalla refleja el servicio aunque la actividad se haya recreado.
+        ConnectionState.running = true
+        acquireLocks()
+    }
+
+    /**
+     * Con la pantalla apagada, Android puede dormir la CPU y poner la Wi-Fi en ahorro de energía:
+     * el vídeo se entrecorta o se para. Estos bloqueos lo evitan mientras el servicio está activo.
+     */
+    private fun acquireLocks() {
+        runCatching {
+            wakeLock = (getSystemService(Context.POWER_SERVICE) as PowerManager)
+                .newWakeLock(PowerManager.PARTIAL_WAKE_LOCK, "opencam:stream")
+                .apply { setReferenceCounted(false); acquire() }
+        }
+        runCatching {
+            // HIGH_PERF sigue activo con la pantalla apagada; Android 14 lo sustituye por LOW_LATENCY.
+            @Suppress("DEPRECATION")
+            val mode = if (Build.VERSION.SDK_INT >= 34) WifiManager.WIFI_MODE_FULL_LOW_LATENCY
+            else WifiManager.WIFI_MODE_FULL_HIGH_PERF
+            wifiLock = (applicationContext.getSystemService(Context.WIFI_SERVICE) as WifiManager)
+                .createWifiLock(mode, "opencam:stream")
+                .apply { setReferenceCounted(false); acquire() }
+        }
+    }
+
+    private fun releaseLocks() {
+        runCatching { wifiLock?.takeIf { it.isHeld }?.release() }
+        runCatching { wakeLock?.takeIf { it.isHeld }?.release() }
+        wifiLock = null
+        wakeLock = null
     }
 
     private fun applyConfig(json: String) {

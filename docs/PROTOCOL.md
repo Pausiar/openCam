@@ -92,7 +92,11 @@ podría ver la cámara. Por eso cada conexión se empareja y se cifra.
 **Emparejamiento.** El móvil muestra un código de 6 dígitos. La primera vez el usuario lo
 escribe en el PC (`--code` o la interfaz). Después ambos guardan una clave de 32 bytes
 (`pairing_key`) y las reconexiones no piden nada. El código cambia tras cada emparejamiento
-correcto y tras 5 intentos fallidos seguidos, así que adivinarlo probando no es viable.
+correcto y tras 5 intentos fallidos seguidos. Cada tanda de 5 fallos bloquea además el
+emparejamiento por código durante 30 s, y el bloqueo se duplica en cada tanda siguiente hasta
+10 min (se reinicia al emparejar bien): mientras dura, el móvil responde `ERROR`
+`too_many_attempts` a cualquier `HELLO` que necesite código, sin gastar intentos. Así adivinar
+el código probando no es viable. Las reconexiones con clave guardada no se bloquean.
 
 **Handshake** (en claro, payload máximo 64 KiB y 10 s de plazo; antes de terminarlo una
 conexión nueva no puede expulsar al PC conectado):
@@ -139,6 +143,9 @@ Los vectores de prueba de `core/src/secure.rs` (`tests::vector`) se repiten en
 - **Cola limitada**: el receptor mantiene una cola acotada. Si se llena, descarta los frames más antiguos. Un keyframe nuevo descarta los P-frames anteriores, porque ya no son útiles para la baja latencia.
 - **Arranque**: el decodificador descarta cualquier P-frame hasta el primer keyframe.
 - **Tamaño**: `payload_len > 16 MiB` es error de protocolo.
+- **Enlace muerto**: el escritorio da la conexión por perdida si no recibe nada en 6 s (el móvil
+  responde un `PONG` por segundo) y reconecta; el móvil suelta al escritorio si no recibe nada en
+  10 s. Sin estos plazos, una Wi-Fi caída dejaría a ambos esperando minutos al timeout de TCP.
 - **Versión**: si `version` no es 1, el receptor responde `ERROR` con código `unsupported_version` y cierra.
 
 ## Estimación de ancho de banda

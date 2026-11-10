@@ -242,24 +242,39 @@ class MemoryPairingKeys : PairingKeys {
 
 /**
  * Estado de emparejamiento del móvil: id propio, código visible y claves guardadas.
- * El código cambia tras emparejar un PC y tras [Secure.MAX_CODE_ATTEMPTS] fallos seguidos,
- * así que adivinarlo por fuerza bruta en línea no es viable.
+ * El código cambia tras emparejar un PC y tras [Secure.MAX_CODE_ATTEMPTS] fallos seguidos.
+ * Cada tanda de fallos bloquea además el emparejamiento por código durante un rato que se
+ * duplica (30 s, 1 min, 2 min… hasta 10 min): sin esa pausa, alguien en la misma red podría
+ * probar códigos sin parar y acertar en pocas horas. Los PCs ya emparejados no se ven afectados.
  */
 class Pairing(
     val phoneId: String,
     val keys: PairingKeys,
     var onCodeChanged: ((String) -> Unit)? = null,
+    /** Reloj monótono en ms (inyectable en los tests). */
+    private val nowMs: () -> Long = { System.nanoTime() / 1_000_000 },
 ) {
     @Volatile var code: String = Secure.newCode()
         private set
     private var failures = 0
+    private var lockouts = 0
+    private var lockedUntilMs = Long.MIN_VALUE
+
+    /** Milisegundos que faltan para volver a aceptar un código (0 = se acepta ya). */
+    @Synchronized fun lockedForMs(): Long =
+        if (lockouts == 0) 0L else (lockedUntilMs - nowMs()).coerceAtLeast(0)
 
     @Synchronized fun onFailure() {
-        if (++failures >= Secure.MAX_CODE_ATTEMPTS) rotate()
+        if (++failures >= Secure.MAX_CODE_ATTEMPTS) {
+            lockouts++
+            lockedUntilMs = nowMs() + lockoutMs(lockouts)
+            rotate()
+        }
     }
 
     @Synchronized fun onPaired(clientId: String, key: ByteArray) {
         keys.put(clientId, key)
+        lockouts = 0
         rotate()
     }
 
@@ -273,5 +288,14 @@ class Pairing(
         failures = 0
         code = Secure.newCode()
         onCodeChanged?.invoke(code)
+    }
+
+    companion object {
+        const val LOCKOUT_BASE_MS = 30_000L
+        const val LOCKOUT_MAX_MS = 600_000L
+
+        /** Pausa tras la tanda de fallos número `n` (1, 2, 3…): 30 s que se duplican hasta 10 min. */
+        fun lockoutMs(n: Int): Long =
+            if (n <= 0) 0L else (LOCKOUT_BASE_MS shl (n - 1).coerceAtMost(10)).coerceAtMost(LOCKOUT_MAX_MS)
     }
 }

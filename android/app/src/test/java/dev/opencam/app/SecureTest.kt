@@ -129,4 +129,25 @@ class SecureTest {
         assertNull(keys.get("c0ffee00"))
         assertNotEquals(0, changes)
     }
+
+    @Test
+    fun codeLockoutGrowsAndClearsOnPairing() {
+        var now = 0L
+        val p = Pairing("a1b2c3d4", MemoryPairingKeys(), nowMs = { now })
+        repeat(Secure.MAX_CODE_ATTEMPTS - 1) { p.onFailure() }
+        assertEquals(0L, p.lockedForMs()) // unos pocos errores al teclear no bloquean
+        p.onFailure()
+        assertEquals(Pairing.LOCKOUT_BASE_MS, p.lockedForMs())
+        now += Pairing.LOCKOUT_BASE_MS - 1
+        assertEquals(1L, p.lockedForMs())
+        now += 1
+        assertEquals(0L, p.lockedForMs())
+        // La segunda tanda de fallos bloquea el doble.
+        repeat(Secure.MAX_CODE_ATTEMPTS) { p.onFailure() }
+        assertEquals(2 * Pairing.LOCKOUT_BASE_MS, p.lockedForMs())
+        p.onPaired("c0ffee00", ByteArray(32) { 1 })
+        assertEquals(0L, p.lockedForMs())
+        assertEquals(0L, Pairing.lockoutMs(0))
+        assertEquals(Pairing.LOCKOUT_MAX_MS, Pairing.lockoutMs(50))
+    }
 }
