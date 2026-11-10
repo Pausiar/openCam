@@ -32,7 +32,8 @@ OpenCam convierte un móvil Android o un iPhone en la cámara web de tu PC. El m
 
 ## Qué ofrece
 
-- **Resolución, fps y bitrate a tu elección**: 1080p, 720p o 480p, a 30 fps o más si tu móvil lo admite, con el bitrate que quieras (`--width`, `--height`, `--fps`, `--bitrate`).
+- **Ventana sencilla en el ordenador** (Windows, Linux y macOS) para conectar el móvil, elegir la calidad y ver una vista previa; y una pantalla en el móvil con la IP y el puerto que hay que poner.
+- **Resolución, fps y bitrate a tu elección**: 1080p, 720p o 480p, a 30 fps o más si tu móvil lo admite, con el bitrate que quieras, desde el móvil o desde el PC.
 - **USB o Wi-Fi**: por cable con `adb forward` (Android) o usbmuxd (iPhone), o por la red local. En Wi-Fi el ordenador encuentra el móvil solo (mDNS, `--discover`).
 - **Vídeo H.264 por hardware**: el móvil apenas se calienta y la latencia es baja.
 - **Reconexión automática**: si se corta el cable o la Wi-Fi, el cliente vuelve a conectar sin que reinicies nada.
@@ -60,81 +61,60 @@ Todo sale de la [última release](https://github.com/Pausiar/openCam/releases/la
 
 ### 1. Prepara el móvil
 
-**Android**
-
-1. Instala la APK (Android te pedirá permitir instalar apps de fuentes desconocidas).
-2. Abre OpenCam, da permiso de cámara y pulsa **Iniciar**.
-
-**iPhone**
-
-1. Compila la app desde [`ios/`](ios/README.md) con XcodeGen y Xcode, en un Mac con tu firma de Apple.
-2. Ábrela y pulsa **Iniciar**. Déjala en primer plano: iOS no deja usar la cámara en segundo plano.
+1. Instala la APK (Android te pedirá permitir apps de fuentes desconocidas). En iPhone, compila la app desde [`ios/`](ios/README.md) con XcodeGen y Xcode.
+2. Abre OpenCam. La pantalla muestra los **datos para el PC**: la IP y el puerto (p. ej. `192.168.1.50:4747`), el nombre del móvil y cómo conectar por USB.
+3. Elige resolución, fps, calidad y cámara (y, si quieres, zoom, enfoque o estabilización), y pulsa **Iniciar**. En iPhone, deja la app en primer plano: iOS no deja usar la cámara en segundo plano.
 
 ### 2. Conecta el ordenador
 
-<details open>
-<summary><b>Windows</b></summary>
+Abre **OpenCam** en el ordenador (en Windows, desde el acceso directo del instalador). Se abre una ventana:
 
-1. Ejecuta `opencam-setup-windows-x86_64.exe`. Instala el cliente y registra la cámara virtual **OpenCam Virtual Camera**.
-2. Conecta el móvil:
-   - Por USB (Android): `adb forward tcp:4747 tcp:4747` y luego `opencam-desktop 127.0.0.1:4747`.
-   - Por Wi-Fi: `opencam-desktop 192.168.1.50:4747` (la IP del móvil, en sus ajustes de Wi-Fi), o `opencam-desktop --discover` para buscarlo.
-3. En Zoom, Meet, OBS… elige **OpenCam Virtual Camera**.
-
-</details>
+1. **Conexión**: *Automática* (prueba USB y luego Wi-Fi), *Wi-Fi* (escribe la IP que muestra el móvil o pulsa *Buscar móviles en la red*), *Android por USB* (depuración USB activada y adb instalado) o *iPhone por USB* (macOS y Linux).
+2. **Vídeo**: resolución de la cámara virtual, fps y calidad, o marca *Usar la calidad elegida en el móvil*.
+3. **Salida**: cámara virtual, archivo Y4M o solo vista previa.
+4. La primera vez, escribe en **Código de emparejamiento** los 6 dígitos que muestra el móvil; después el PC queda emparejado y la conexión va cifrada.
+5. Pulsa **Conectar**. Verás el estado, los fps, la latencia y una vista previa, y podrás cambiar en vivo la cámara (frontal o trasera), el zoom, la estabilización y el modo espejo.
+6. En Zoom, Meet, OBS… elige **OpenCam Virtual Camera** (Windows) u **OpenCam** (Linux).
 
 <details>
-<summary><b>Linux</b></summary>
+<summary><b>Linux: crea antes la cámara virtual</b></summary>
 
 ```bash
-# Crea la cámara virtual (una vez por arranque)
 sudo modprobe v4l2loopback video_nr=10 card_label="OpenCam" exclusive_caps=1
-
-# Android por USB
-adb forward tcp:4747 tcp:4747
-./opencam-desktop-linux-x86_64 127.0.0.1:4747 --device /dev/video10
-
-# iPhone por USB (necesita usbmuxd)
-./opencam-desktop-linux-x86_64 iphone --device /dev/video10
 ```
-
-Luego elige **OpenCam** como cámara en tu app.
 
 </details>
 
 <details>
 <summary><b>macOS</b></summary>
 
-Todavía no hay cámara virtual en macOS. El cliente saca el vídeo en formato Y4M, que puedes ver con `ffplay` o meter en OBS:
-
-```bash
-./opencam-desktop-macos-arm64-sin-camara-virtual-solo-y4m 192.168.1.50:4747 | ffplay -
-```
-
-El binario no va firmado: la primera vez ábrelo con clic derecho → **Abrir**.
+Todavía no hay cámara virtual en macOS: la ventana muestra la vista previa y puede grabar a un archivo Y4M. El binario no va firmado: la primera vez ábrelo con clic derecho → **Abrir**.
 
 </details>
 
-### 3. Ajusta la calidad
+### 3. Desde la terminal (opcional)
+
+Con argumentos, el cliente funciona sin ventana:
 
 ```bash
-opencam-desktop 127.0.0.1:4747 --width 1280 --height 720 --fps 60 --bitrate 6000
+opencam-desktop auto --device /dev/video10                         # busca el móvil (USB y Wi-Fi)
+opencam-desktop 192.168.1.50:4747 --width 1280 --height 720 --fps 60 --bitrate 6000
+opencam-desktop usb --phone-settings                               # usa la calidad elegida en el móvil
+opencam-desktop 192.168.1.50:4747 --sink y4m | ffplay -            # macOS: ver el vídeo
 ```
 
 | Opción | Por defecto | Qué hace |
 |---|---|---|
-| `--width` / `--height` | `1920` × `1080` | Resolución que se pide al móvil. |
+| `--width` / `--height` | `1920` × `1080` | Resolución de la cámara virtual (y la que se pide al móvil). |
 | `--fps` | `30` | Fotogramas por segundo. |
 | `--bitrate` | `8000` | Bitrate de vídeo en kbps. Bájalo si la Wi-Fi va justa. |
+| `--phone-settings` | | No pide resolución, fps ni bitrate: usa los del móvil. |
 | `--device` | `/dev/video10` | Dispositivo v4l2loopback (Linux). |
-| `--sink` | según el sistema | `v4l2`, `windows` o `y4m`. |
-| `--discover` | | Busca móviles con OpenCam en la red local. |
-| `--list` | | Lista los móviles disponibles (Wi-Fi e iPhone por USB). |
+| `--sink` | según el sistema | `v4l2`, `windows`, `y4m` o `none`. |
+| `--list` | | Lista los móviles disponibles. |
 | `--no-reconnect` | | No reintenta la conexión si se corta. |
 
-La lista completa está en `opencam-desktop --help`.
-
-<!-- CAPTURA PENDIENTE: site/img/captura-ajustes.png (terminal con el cliente conectado mostrando resolución y fps) -->
+La lista completa (zoom, enfoque, cámara frontal…) está en `opencam-desktop --help`.
 
 ## Estado por plataforma
 

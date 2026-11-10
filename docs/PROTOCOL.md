@@ -57,10 +57,14 @@ Un tipo desconocido se ignora y se registra; no cierra la conexión. Así, un m�
     "resolutions":[[1920,1080],[3840,2160]],
     "fps":[15,24,30,60],"lenses":["wide","ultrawide","tele"]}
    ```
+   `current` (opcional) lleva los ajustes elegidos en la app del móvil:
+   `{"width":1920,"height":1080,"fps":30,"bitrate_kbps":8000,"lens":"wide"}`.
 3. El escritorio envía `CONFIG`:
    ```json
    {"codec":"h264","width":1920,"height":1080,"fps":30,"bitrate_kbps":8000,"lens":"wide"}
    ```
+   Todos los campos son opcionales: el móvil usa sus ajustes locales (`current`) para los que falten. Con «usar la calidad del móvil» el escritorio solo envía `{"codec":"h264"}`.
+
    Campos avanzados opcionales (si faltan, el móvil conserva su valor actual, p. ej. lo elegido en su pantalla):
 
    | Campo            | Valores | Efecto |

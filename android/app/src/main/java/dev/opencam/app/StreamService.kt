@@ -66,7 +66,11 @@ class StreamService : Service() {
             onConfig = { json -> applyConfig(json) },
             onStats = { json -> applyStats(json) },
             onKeyframeRequest = { encoder?.requestKeyframe() },
-            onClientChanged = { connected -> ConnectionState.set(connected) },
+            onClientChanged = { connected ->
+                // Un PC nuevo parte de la calidad elegida en el móvil, no de la que pidió el anterior.
+                if (connected) cameraHandler?.post { config = AppSettings.withBasics(config, AppSettings.load(this)) }
+                ConnectionState.set(connected)
+            },
             pairing = PairingPrefs.pairing(this),
         ).also { it.start() }
         nsd = NsdAdvertiser(this).also { it.start() }
@@ -429,6 +433,7 @@ class StreamService : Service() {
             .put("max_zoom", wideId?.let { maxZoom(it).toDouble() } ?: 1.0)
             .put("stabilization", wideId?.let { hasStabilization(it) } ?: false)
             .put("manual_focus", wideId?.let { hasManualFocus(it) } ?: false)
+            .put("current", AppSettings.load(this).toJson())
             .toString()
     }
 
@@ -457,6 +462,14 @@ data class StreamConfig(
     /** Enfoque manual: 0 = infinito, 1 = lo más cerca posible. */
     val focusDistance: Float = 0f,
 ) {
+    /** Ajustes elegidos en el móvil que se anuncian en CAPS como `current`. */
+    fun toJson(): JSONObject = JSONObject()
+        .put("width", width)
+        .put("height", height)
+        .put("fps", fps)
+        .put("bitrate_kbps", bitrateKbps)
+        .put("lens", lens)
+
     /** True si `new` solo cambia ajustes que se aplican sin reiniciar cámara ni codificador. */
     fun onlyLiveChanges(new: StreamConfig): Boolean =
         new.copy(

@@ -1,10 +1,15 @@
+// En Windows la app es de ventana (sin consola negra); en modo CLI se engancha a la consola padre.
+#![cfg_attr(windows, windows_subsystem = "windows")]
+
 mod adb;
 mod cli;
 mod client;
 mod convert;
 mod decoder;
 mod discovery;
+mod gui;
 mod pairing;
+mod prefs;
 mod session;
 mod settings;
 mod sink;
@@ -26,9 +31,24 @@ use cli::{Cli, CliError, SinkKind};
 use settings::Command;
 use sink::FrameSink;
 
+/// La app de Windows no tiene consola propia; en modo CLI usa la de quien la lanzó.
+#[cfg(windows)]
+fn attach_console() {
+    use windows::Win32::System::Console::{AttachConsole, ATTACH_PARENT_PROCESS};
+    // SAFETY: llamada Win32 sin punteros; falla sin efecto si no hay consola padre.
+    let _ = unsafe { AttachConsole(ATTACH_PARENT_PROCESS) };
+}
+
 fn main() -> io::Result<()> {
+    // Sin argumentos se abre la ventana. Con argumentos, modo línea de órdenes:
     // Por defecto (`auto`) busca el móvil solo: USB (adb / usbmuxd) y luego Wi-Fi (mDNS).
-    let mut cli = match Cli::parse(env::args().skip(1)) {
+    let args: Vec<String> = env::args().skip(1).collect();
+    if args.is_empty() {
+        return gui::run();
+    }
+    #[cfg(windows)]
+    attach_console();
+    let mut cli = match Cli::parse(args) {
         Ok(cli) => cli,
         Err(CliError::Help) => {
             print!("{}", cli::HELP);
@@ -40,6 +60,9 @@ fn main() -> io::Result<()> {
         }
     };
 
+    if cli.gui {
+        return gui::run();
+    }
     if cli.list {
         return list();
     }
@@ -50,8 +73,9 @@ fn main() -> io::Result<()> {
     let mut sink = open_sink(&cli)?;
     let live = Mutex::new(cli.live());
     let commands = cli.controls.then(spawn_console);
-    session::run(&cli, &live, |client| {
-        session::serve(client, &mut *sink, &cli, &live, commands.as_ref())
+    let obs = session::Stderr;
+    session::run(&cli, &live, &obs, |client| {
+        session::serve(client, &mut *sink, &cli, &live, commands.as_ref(), &obs)
     })
 }
 
@@ -99,8 +123,9 @@ fn list() -> io::Result<()> {
     Ok(())
 }
 
-fn open_sink(cli: &Cli) -> io::Result<Box<dyn FrameSink>> {
+pub fn open_sink(cli: &Cli) -> io::Result<Box<dyn FrameSink>> {
     match cli.sink {
+        SinkKind::None => Ok(Box::new(sink::NullSink)),
         SinkKind::Y4m => Ok(Box::new(sink::Y4mSink::open(
             &cli.output,
             cli.width as usize,

@@ -2,6 +2,21 @@
 
 Cliente de escritorio: se conecta al móvil por el protocolo OPCM (ver `docs/PROTOCOL.md`), decodifica H.264 y lo entrega a una cámara virtual.
 
+## Interfaz gráfica
+
+Sin argumentos, `opencam-desktop` abre una ventana (egui) en Windows, Linux y macOS:
+
+- **Conexión**: automática (USB y luego Wi-Fi), Wi-Fi (IP del móvil o búsqueda mDNS), Android por USB o iPhone por USB.
+- **Vídeo**: resolución de la cámara virtual (1920x1080, 1280x720, 640x480), fps y bitrate, o *Usar la calidad elegida en el móvil* (el PC solo pide el códec).
+- **Salida**: cámara virtual (v4l2loopback en Linux, DirectShow en Windows), archivo Y4M o solo vista previa (lo normal en macOS).
+- Botón **Conectar/Desconectar**, estado, fps, latencia, bitrate y vista previa del vídeo.
+
+Los ajustes se guardan en `%APPDATA%\OpenCam\settings.txt` (Windows), `~/Library/Application Support/OpenCam/settings.txt` (macOS) o `~/.config/opencam/settings.txt` (Linux).
+
+Con cualquier argumento funciona como CLI (`--gui` fuerza la ventana). En Windows el ejecutable es de ventana: lanzado desde una consola con argumentos, escribe en esa consola, pero la consola no espera a que termine.
+
+En Linux la ventana necesita en tiempo de ejecución OpenGL y `libxkbcommon-x11` (o Wayland), que trae cualquier escritorio.
+
 ## Estado
 
 | Sistema | Cámara virtual | Estado |

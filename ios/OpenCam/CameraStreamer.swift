@@ -13,6 +13,11 @@ final class CameraStreamer: NSObject, AVCaptureVideoDataOutputSampleBufferDelega
     }
 
     private let server = OpcmServer()
+    /// Ajustes elegidos en la app: valores por defecto de cada CONFIG (el PC puede pedir solo el códec).
+    /// Se fijan antes de `start()`; la interfaz no los deja cambiar mientras se emite.
+    var settings = StreamSettings.load()
+    /// Conexión del escritorio (true) o desconexión (false); se llama en la cola del servidor.
+    var onConnectionChange: ((Bool) -> Void)?
     private let encoder = H264Encoder()
     private let session = AVCaptureSession()
     /// Cola única: configuración, delegate de captura y estado de abajo. Sin locks.
@@ -30,12 +35,18 @@ final class CameraStreamer: NSObject, AVCaptureVideoDataOutputSampleBufferDelega
         encoder.onEncoded = { [weak self] data, keyframe, ts in
             self?.server.sendVideo(data, keyframe: keyframe, timestampUs: ts)
         }
-        server.capsPayload = Self.capsPayload()
+        server.capsPayload = Self.capsPayload(current: settings)
         server.onConfig = { [weak self] payload in self?.queue.async { self?.applyConfig(payload) } }
         server.onStats = { [weak self] payload in self?.queue.async { self?.applyStats(payload) } }
         server.onKeyframeRequest = { [weak self] in self?.queue.async { self?.forceKeyframe = true } }
-        server.onClientConnected = { [weak self] in self?.queue.async { self?.forceKeyframe = true } }
-        server.onClientDisconnected = { [weak self] in self?.queue.async { self?.stopCapture() } }
+        server.onClientConnected = { [weak self] in
+            self?.onConnectionChange?(true)
+            self?.queue.async { self?.forceKeyframe = true }
+        }
+        server.onClientDisconnected = { [weak self] in
+            self?.onConnectionChange?(false)
+            self?.queue.async { self?.stopCapture() }
+        }
         try server.start()
     }
 
@@ -82,11 +93,11 @@ final class CameraStreamer: NSObject, AVCaptureVideoDataOutputSampleBufferDelega
         // Se reconfigura con la captura parada; también vale para un CONFIG repetido.
         stopCapture()
         session.beginConfiguration()
-        session.sessionPreset = Self.preset(forWidth: cfg.width ?? 1920, session: session)
+        session.sessionPreset = Self.preset(forWidth: cfg.width ?? settings.width, session: session)
         session.commitConfiguration()
 
-        fps = applyFrameRate(cfg.fps ?? 30)
-        bitrateKbps = min(max(cfg.bitrate_kbps ?? 8000, 500), 100_000)
+        fps = applyFrameRate(cfg.fps ?? settings.fps)
+        bitrateKbps = min(max(cfg.bitrate_kbps ?? settings.bitrateKbps, 500), 100_000)
         forceKeyframe = true
         // El encoder se crea con el tamaño real del primer frame (ver captureOutput).
         session.startRunning()
@@ -142,13 +153,21 @@ final class CameraStreamer: NSObject, AVCaptureVideoDataOutputSampleBufferDelega
         encoder.setBitrate(kbps: bitrateKbps)
     }
 
-    /// CAPS según el hardware: 4K solo si la cámara trasera lo soporta.
-    private static func capsPayload() -> Data {
+    /// Resoluciones que ofrece la cámara trasera: 4K solo si la soporta.
+    static func supportedResolutions() -> [[Int]] {
         var res = [[1280, 720], [1920, 1080]]
         if let d = AVCaptureDevice.default(.builtInWideAngleCamera, for: .video, position: .back),
            d.supportsSessionPreset(.hd4K3840x2160) { res.append([3840, 2160]) }
-        let caps: [String: Any] = ["platform": "ios", "codecs": ["h264"], "resolutions": res,
-                                   "fps": [24, 30, 60], "lenses": ["wide"]]
+        return res
+    }
+
+    /// CAPS según el hardware, con los ajustes locales en `current`.
+    private static func capsPayload(current: StreamSettings) -> Data {
+        let caps: [String: Any] = ["platform": "ios", "codecs": ["h264"], "resolutions": supportedResolutions(),
+                                   "fps": [24, 30, 60], "lenses": ["wide"],
+                                   "current": ["width": current.width, "height": current.height,
+                                               "fps": current.fps, "bitrate_kbps": current.bitrateKbps,
+                                               "lens": "wide"]]
         return (try? JSONSerialization.data(withJSONObject: caps)) ?? Data()
     }
 

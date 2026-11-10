@@ -84,6 +84,8 @@ pub struct Client {
     reader: Box<dyn Stream>,
     tx: Sender,
     epoch: Instant,
+    /// JSON de CAPS recibido en el handshake (vacío antes).
+    pub caps: String,
     /// Cifrado de entrada, activo tras AUTH.
     rx_cipher: Option<Cipher>,
     /// Tamaño máximo de payload: bajo hasta terminar el handshake.
@@ -116,6 +118,7 @@ impl Client {
             reader: stream,
             tx: Sender(Arc::new(Mutex::new(writer))),
             epoch,
+            caps: String::new(),
             rx_cipher: None,
             max_payload: MAX_UNAUTH_PAYLOAD,
             secure: false,
