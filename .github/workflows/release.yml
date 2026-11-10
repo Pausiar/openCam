@@ -60,25 +60,47 @@ jobs:
           if-no-files-found: error
 
   windows-vcam:
-    name: Cámara virtual DirectShow (Windows)
+    name: Cámara virtual DirectShow (Windows, 64 y 32 bits)
     runs-on: windows-latest
     steps:
       - uses: actions/checkout@v4
       - uses: dtolnay/rust-toolchain@stable
+        with:
+          # Las apps de 32 bits (algunas instalaciones de Discord, apps antiguas) sólo
+          # cargan una DLL de 32 bits.
+          targets: x86_64-pc-windows-msvc, i686-pc-windows-msvc
       - uses: Swatinem/rust-cache@v2
         with:
           workspaces: desktop/windows-vcam
       - name: Compilar
         working-directory: desktop/windows-vcam
         shell: bash
-        run: cargo build --release --locked
-      - name: Preparar artefacto
+        run: |
+          cargo build --release --locked --target x86_64-pc-windows-msvc
+          cargo build --release --locked --target i686-pc-windows-msvc
+      - name: Probar el registro en Windows
+        # El runner es administrador: registra las dos DLL, comprueba el registro y que
+        # DirectShow lista la cámara, y las desregistra.
+        working-directory: desktop/windows-vcam
+        shell: pwsh
+        run: |
+          ./test-register.ps1 `
+            -Dll64 target/x86_64-pc-windows-msvc/release/opencam_vcam.dll `
+            -Dll32 target/i686-pc-windows-msvc/release/opencam_vcam.dll
+      - name: Preparar artefactos
         shell: bash
-        run: cp desktop/windows-vcam/target/release/opencam_vcam.dll opencam-vcam-windows-x86_64.dll
+        run: |
+          cp desktop/windows-vcam/target/x86_64-pc-windows-msvc/release/opencam_vcam.dll opencam-vcam-windows-x86_64.dll
+          cp desktop/windows-vcam/target/i686-pc-windows-msvc/release/opencam_vcam.dll opencam-vcam-windows-x86.dll
       - uses: actions/upload-artifact@v4
         with:
           name: opencam-vcam-windows-x86_64
           path: opencam-vcam-windows-x86_64.dll
+          if-no-files-found: error
+      - uses: actions/upload-artifact@v4
+        with:
+          name: opencam-vcam-windows-x86
+          path: opencam-vcam-windows-x86.dll
           if-no-files-found: error
 
   windows-installer:
@@ -96,12 +118,17 @@ jobs:
         with:
           name: opencam-vcam-windows-x86_64
           path: desktop/windows-installer/payload
+      - uses: actions/download-artifact@v4
+        with:
+          name: opencam-vcam-windows-x86
+          path: desktop/windows-installer/payload
       - name: Renombrar las piezas
         working-directory: desktop/windows-installer/payload
         shell: bash
         run: |
           mv opencam-desktop-windows-x86_64.exe opencam-desktop.exe
           mv opencam-vcam-windows-x86_64.dll opencam_vcam.dll
+          mv opencam-vcam-windows-x86.dll opencam_vcam_x86.dll
       - name: Instalar NSIS
         shell: pwsh
         run: choco install nsis --no-progress -y
