@@ -1,0 +1,8 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Barra de navegación clara (API 27+). -->
+<resources>
+    <style name="Theme.OpenCam.Nav" parent="Theme.OpenCam">
+        <item name="android:navigationBarColor">@color/bg</item>
+        <item name="android:windowLightNavigationBar">true</item>
+    </style>
+</resources>

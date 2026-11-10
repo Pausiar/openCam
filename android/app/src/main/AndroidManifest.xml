@@ -14,9 +14,11 @@
 
     <application
         android:label="OpenCam"
+        android:icon="@mipmap/ic_launcher"
+        android:roundIcon="@mipmap/ic_launcher"
         android:allowBackup="false"
         android:supportsRtl="true"
-        android:theme="@android:style/Theme.DeviceDefault.NoActionBar">
+        android:theme="@style/Theme.OpenCam.Nav">
 
         <activity
             android:name=".MainActivity"

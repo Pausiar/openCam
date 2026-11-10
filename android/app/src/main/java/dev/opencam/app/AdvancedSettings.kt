@@ -32,8 +32,11 @@ object AdvancedSettings {
     }
 }
 
-/** Controles de la sección "Ajustes avanzados" (layout advanced_settings.xml). */
-class AdvancedControls(root: View) {
+/**
+ * Controles de la sección "Ajustes avanzados" (layout advanced_settings.xml).
+ * `onRender` recibe cada estado pintado, para que el resto de la pantalla lo refleje.
+ */
+class AdvancedControls(root: View, private val onRender: (StreamConfig) -> Unit = {}) {
     private val info: TextView = root.findViewById(R.id.adv_info)
     private val front: CompoundButton = root.findViewById(R.id.adv_front)
     private val stab: CompoundButton = root.findViewById(R.id.adv_stab)
@@ -82,6 +85,7 @@ class AdvancedControls(root: View) {
         focus.progress = (cfg.focusDistance * FOCUS_STEPS).toInt()
         focusLabel.text = if (manual) "Enfoque manual (infinito ↔ cerca)" else "Enfoque manual (desactiva el autoenfoque)"
         rendering = false
+        onRender(cfg)
     }
 
     private fun seek(onUser: (Int) -> Unit) = object : SeekBar.OnSeekBarChangeListener {
