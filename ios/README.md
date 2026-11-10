@@ -29,8 +29,11 @@ La cámara no funciona en el simulador. iOS 15+, solo iPhone.
   encoder usa el tamaño real del primer frame. Un cliente nuevo o `KEYFRAME_REQUEST` fuerzan keyframe;
   todo el estado se toca solo en la cola de captura. STATS `{"target_bitrate_kbps":N}` ajusta
   `AverageBitRate`.
-- `OpenCam/OpenCamApp.swift`: interfaz mínima (iniciar/parar); mantiene la pantalla encendida
-  (`isIdleTimerDisabled`) mientras se emite.
+- `OpenCam/OpenCamApp.swift`: interfaz en pestañas (Inicio, Conexión, Ajustes): vista previa de lo
+  que recibe el PC, dirección del servidor con botón de copiar, código de emparejamiento, ajustes
+  rápidos de resolución, fps y calidad. Mantiene la pantalla encendida (`isIdleTimerDisabled`)
+  mientras se emite.
+- `OpenCam/Theme.swift`: colores, tarjetas, logotipo y la vista previa (`AVCaptureVideoPreviewLayer`).
 - `OpenCam/Info.plist`: permisos de cámara y red local, `NSBonjourServices`.
 
 ## Conexión por USB

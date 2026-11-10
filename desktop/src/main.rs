@@ -17,6 +17,7 @@ mod sink;
 mod sink_linux;
 #[cfg(windows)]
 mod sink_windows;
+mod theme;
 mod transport;
 #[cfg(unix)]
 mod usbmuxd;

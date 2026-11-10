@@ -50,6 +50,9 @@ final class CameraStreamer: NSObject, AVCaptureVideoDataOutputSampleBufferDelega
         try server.start()
     }
 
+    /// Sesión de captura, para la vista previa de la interfaz (solo emite mientras el PC está conectado).
+    var captureSession: AVCaptureSession { session }
+
     /// Código de emparejamiento que la UI debe mostrar (el PC lo pide la primera vez).
     var pairingCode: String { server.pairingCode }
     /// Se llama (fuera del hilo principal) cuando cambia el código.
