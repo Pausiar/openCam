@@ -135,9 +135,25 @@ jobs:
           mv opencam-desktop-windows-x86_64.exe opencam-desktop.exe
           mv opencam-vcam-windows-x86_64.dll opencam_vcam.dll
           mv opencam-vcam-windows-x86.dll opencam_vcam_x86.dll
+      # Chocolatey a veces devuelve 504 (falló así la v1.0.0): si NSIS ya
+      # está en el runner no se instala, y si no, se reintenta y se prueba winget.
       - name: Instalar NSIS
         shell: pwsh
-        run: choco install nsis --no-progress -y
+        run: |
+          $makensis = "${env:ProgramFiles(x86)}\NSIS\makensis.exe"
+          if ((Test-Path $makensis) -or (Get-Command makensis -ErrorAction SilentlyContinue)) {
+            Write-Host "NSIS ya está instalado"; exit 0
+          }
+          foreach ($i in 1..4) {
+            choco install nsis --no-progress -y
+            if ($LASTEXITCODE -eq 0) { exit 0 }
+            Write-Host "choco falló (intento $i), reintentando..."
+            Start-Sleep -Seconds (15 * $i)
+          }
+          Write-Host "Chocolatey no responde; se prueba winget"
+          winget install --id NSIS.NSIS -e --silent --accept-source-agreements --accept-package-agreements
+          if (Test-Path $makensis) { exit 0 }
+          exit 1
       - name: Compilar el instalador
         working-directory: desktop/windows-installer
         shell: pwsh
