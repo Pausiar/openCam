@@ -3,13 +3,17 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>OpenCam: descargas</title>
-  <meta name="description" content="Descarga las apps compiladas de OpenCam: cliente de escritorio, cámara virtual de Windows y app de Android. Cada tarjeta indica lo que está probado.">
+  <title>OpenCam: tu móvil como webcam</title>
+  <meta name="description" content="OpenCam convierte tu móvil Android o iPhone en la webcam del ordenador, por USB o Wi-Fi, con la resolución, los fps y el bitrate que elijas. Libre y de código abierto.">
+  <meta property="og:title" content="OpenCam: tu móvil como webcam">
+  <meta property="og:description" content="Usa la cámara de tu móvil en Zoom, Meet, Teams u OBS. Por USB o Wi-Fi, libre y sin marcas de agua.">
+  <meta property="og:type" content="website">
+  <meta property="og:url" content="https://pausiar.github.io/openCam/">
+  <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='8' fill='%231d5e4b'/%3E%3Ccircle cx='16' cy='16' r='7' fill='none' stroke='white' stroke-width='3'/%3E%3C/svg%3E">
   <style>
-    /* Hallmark · shape: kept · genre: modern-minimal · theme: custom · redesign: restyle · job: download · hero: kept · nav: kept · footer: kept · imagery: none · signature: each card states what is tested
-     * critique: the cards are still equal in weight; kept, the layout is the owner's · contrast: AA on every text pair */
     :root {
       --font: ui-sans-serif, system-ui, -apple-system, "Segoe UI", sans-serif;
+      --mono: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
       --bg: #f5f3ee;
       --surface: #ffffff;
       --fg: #1c1b18;
@@ -17,7 +21,9 @@
       --line: #d8d3c6;
       --accent: #1d5e4b;
       --accent-hover: #164a3b;
+      --accent-soft: #e3eee9;
       --on-accent: #ffffff;
+      --code-bg: #efece4;
       --focus: #1d5e4b;
       color-scheme: light;
     }
@@ -30,7 +36,9 @@
         --line: #3a3830;
         --accent: #7fcaa9;
         --accent-hover: #98d8b9;
+        --accent-soft: #1f2e28;
         --on-accent: #0f1d18;
+        --code-bg: #24231f;
         --focus: #7fcaa9;
         color-scheme: dark;
       }
@@ -43,114 +51,351 @@
       --line: #3a3830;
       --accent: #7fcaa9;
       --accent-hover: #98d8b9;
+      --accent-soft: #1f2e28;
       --on-accent: #0f1d18;
+      --code-bg: #24231f;
       --focus: #7fcaa9;
       color-scheme: dark;
     }
 
     * { box-sizing: border-box; }
+    html { scroll-behavior: smooth; }
     html, body { overflow-x: clip; }
     body { margin: 0; font-family: var(--font); font-size: 16px; line-height: 1.55; color: var(--fg); background: var(--bg); }
-    main { max-width: 880px; margin: 0 auto; padding: 56px 20px 72px; }
-    h1 { font-size: clamp(2.4rem, 6vw, 3.2rem); line-height: 1.05; letter-spacing: -0.02em; font-weight: 700; margin: 0 0 12px; text-wrap: balance; }
-    h2 { font-size: 1.2rem; line-height: 1.25; font-weight: 600; margin: 0 0 8px; text-wrap: balance; }
-    p { margin: 0 0 12px; }
-    .lede { font-size: 1.2rem; max-width: 36ch; margin: 0 0 8px; }
-    .muted { color: var(--muted); }
-    .version { font-size: 0.95rem; color: var(--muted); margin: 0 0 36px; }
-    .grid { display: grid; gap: 16px; grid-template-columns: repeat(auto-fit, minmax(min(100%, 260px), 1fr)); }
-    .card { background: var(--surface); color: var(--fg); border: 1px solid var(--line); border-radius: 12px; padding: 20px; display: flex; flex-direction: column; min-width: 0; }
-    .status { align-self: flex-start; font-size: 0.85rem; color: var(--muted); border: 1px solid var(--line); border-radius: 999px; padding: 4px 12px; margin: 0 0 16px; }
-    .card ul { padding-left: 16px; margin: 0 0 16px; color: var(--muted); font-size: 0.95rem; }
-    .card li + li { margin-top: 4px; }
-    .btn { margin-top: auto; display: inline-block; text-align: center; text-decoration: none; background: var(--accent); color: var(--on-accent); padding: 12px 16px; border: 1px solid transparent; border-radius: 8px; font-weight: 600; transition: background-color 150ms ease, color 150ms ease, border-color 150ms ease; }
-    .btn:hover, .btn:active { background: var(--accent-hover); }
-    .btn.is-off { background: transparent; color: var(--muted); border-color: var(--line); cursor: default; }
+    .wrap { max-width: 960px; margin: 0 auto; padding: 0 20px; }
     a { color: var(--accent); }
-    a:focus-visible, .btn:focus-visible { outline: 2px solid var(--focus); outline-offset: 3px; transition: none; }
-    footer { margin-top: 40px; font-size: 0.9rem; color: var(--muted); }
-    @media (prefers-reduced-motion: reduce) { .btn { transition: none; } }
+    code { font-family: var(--mono); font-size: 0.9em; background: var(--code-bg); padding: 1px 5px; border-radius: 4px; overflow-wrap: anywhere; }
+    pre { font-family: var(--mono); font-size: 0.88rem; background: var(--code-bg); border: 1px solid var(--line); border-radius: 8px; padding: 12px 14px; overflow-x: auto; margin: 0 0 12px; }
+    pre code { background: none; padding: 0; }
+    h1 { font-size: clamp(2.4rem, 7vw, 3.6rem); line-height: 1.04; letter-spacing: -0.025em; font-weight: 750; margin: 0 0 16px; text-wrap: balance; }
+    h2 { font-size: clamp(1.5rem, 3.5vw, 1.9rem); line-height: 1.15; letter-spacing: -0.015em; font-weight: 700; margin: 0 0 8px; text-wrap: balance; }
+    h3 { font-size: 1.1rem; line-height: 1.3; font-weight: 600; margin: 0 0 6px; }
+    p { margin: 0 0 12px; }
+    .muted { color: var(--muted); }
+
+    /* Cabecera */
+    header { border-bottom: 1px solid var(--line); }
+    header .wrap { display: flex; align-items: center; justify-content: space-between; gap: 16px; min-height: 60px; }
+    .brand { display: flex; align-items: center; gap: 10px; font-weight: 700; font-size: 1.05rem; color: var(--fg); text-decoration: none; }
+    .brand svg { flex: none; }
+    nav { display: flex; gap: 18px; font-size: 0.95rem; }
+    nav a { color: var(--muted); text-decoration: none; }
+    nav a:hover { color: var(--fg); }
+    @media (max-width: 600px) { nav .opt { display: none; } }
+
+    /* Portada */
+    .hero { padding: 64px 0 40px; }
+    .lede { font-size: 1.25rem; max-width: 40ch; margin: 0 0 24px; color: var(--muted); }
+    .ctas { display: flex; flex-wrap: wrap; gap: 12px; align-items: center; margin-bottom: 12px; }
+    .version { font-size: 0.92rem; color: var(--muted); margin: 0; }
+    .diagram { margin: 40px 0 0; background: var(--surface); border: 1px solid var(--line); border-radius: 16px; padding: 20px; }
+    .diagram { overflow-x: auto; }
+    .diagram img { display: block; width: 100%; min-width: 620px; height: auto; }
+
+    /* Botones */
+    .btn { display: inline-block; text-align: center; text-decoration: none; background: var(--accent); color: var(--on-accent); padding: 12px 18px; border: 1px solid transparent; border-radius: 8px; font-weight: 600; transition: background-color 150ms ease, color 150ms ease, border-color 150ms ease; }
+    .btn:hover, .btn:active { background: var(--accent-hover); }
+    .btn.ghost { background: transparent; color: var(--fg); border-color: var(--line); }
+    .btn.ghost:hover { border-color: var(--muted); }
+    .btn.is-off { background: transparent; color: var(--muted); border-color: var(--line); cursor: default; }
+    a:focus-visible, .btn:focus-visible, summary:focus-visible { outline: 2px solid var(--focus); outline-offset: 3px; transition: none; }
+
+    /* Secciones */
+    section { padding: 56px 0; border-top: 1px solid var(--line); }
+    .head { margin-bottom: 28px; max-width: 60ch; }
+    .grid { display: grid; gap: 16px; grid-template-columns: repeat(auto-fit, minmax(min(100%, 260px), 1fr)); }
+    .card { background: var(--surface); border: 1px solid var(--line); border-radius: 12px; padding: 20px; display: flex; flex-direction: column; min-width: 0; }
+    .card p:last-child { margin-bottom: 0; }
+
+    .feature .ico { width: 36px; height: 36px; border-radius: 9px; background: var(--accent-soft); color: var(--accent); display: grid; place-items: center; margin-bottom: 12px; }
+    .feature p { color: var(--muted); font-size: 0.95rem; }
+
+    .card.dl.is-rec { border-color: var(--accent); box-shadow: 0 0 0 1px var(--accent); }
+    .rec { display: none; align-self: flex-start; font-size: 0.78rem; font-weight: 600; color: var(--on-accent); background: var(--accent); border-radius: 999px; padding: 2px 10px; margin: 0 0 10px; }
+    .is-rec .rec { display: inline-block; }
+    .status { align-self: flex-start; font-size: 0.85rem; color: var(--muted); border: 1px solid var(--line); border-radius: 999px; padding: 3px 12px; margin: 0 0 14px; }
+    .card ul { padding-left: 18px; margin: 0 0 16px; color: var(--muted); font-size: 0.95rem; }
+    .card li + li { margin-top: 4px; }
+    .card.dl .btn { margin-top: auto; }
+
+    .steps { counter-reset: step; display: grid; gap: 16px; grid-template-columns: repeat(auto-fit, minmax(min(100%, 260px), 1fr)); list-style: none; padding: 0; margin: 0; }
+    .steps li { counter-increment: step; }
+    .steps li::before { content: counter(step); display: grid; place-items: center; width: 32px; height: 32px; border-radius: 50%; background: var(--accent); color: var(--on-accent); font-weight: 700; margin-bottom: 12px; }
+
+    .tabs { display: flex; flex-wrap: wrap; gap: 8px; margin: 28px 0 12px; }
+    .tabs button { font: inherit; font-size: 0.95rem; color: var(--muted); background: transparent; border: 1px solid var(--line); border-radius: 999px; padding: 6px 14px; cursor: pointer; }
+    .tabs button[aria-selected="true"] { color: var(--on-accent); background: var(--accent); border-color: var(--accent); }
+    .tabs button:focus-visible { outline: 2px solid var(--focus); outline-offset: 2px; }
+    .panel { background: var(--surface); border: 1px solid var(--line); border-radius: 12px; padding: 20px; }
+    .panel[hidden] { display: none; }
+    .panel ol { padding-left: 20px; margin: 0 0 12px; }
+    .panel li + li { margin-top: 6px; }
+
+    table { width: 100%; border-collapse: collapse; font-size: 0.95rem; }
+    th, td { text-align: left; padding: 10px 12px; border-bottom: 1px solid var(--line); vertical-align: top; }
+    th { font-weight: 600; color: var(--muted); font-size: 0.85rem; }
+    .table-wrap { overflow-x: auto; background: var(--surface); border: 1px solid var(--line); border-radius: 12px; }
+    .table-wrap tr:last-child td { border-bottom: none; }
+
+    details { background: var(--surface); border: 1px solid var(--line); border-radius: 12px; padding: 0 20px; }
+    details + details { margin-top: 10px; }
+    summary { cursor: pointer; font-weight: 600; padding: 16px 0; list-style-position: outside; }
+    details p { color: var(--muted); }
+    details[open] summary { padding-bottom: 8px; }
+
+    footer { border-top: 1px solid var(--line); padding: 32px 0 48px; font-size: 0.9rem; color: var(--muted); }
+    footer .wrap { display: flex; flex-wrap: wrap; justify-content: space-between; gap: 12px; }
+
+    @media (prefers-reduced-motion: reduce) { html { scroll-behavior: auto; } .btn { transition: none; } }
   </style>
 </head>
 <body>
+  <header>
+    <div class="wrap">
+      <a class="brand" href="#">
+        <svg width="28" height="28" viewBox="0 0 32 32" aria-hidden="true"><rect width="32" height="32" rx="8" fill="var(--accent)"/><circle cx="16" cy="16" r="7" fill="none" stroke="var(--on-accent)" stroke-width="3"/></svg>
+        OpenCam
+      </a>
+      <nav aria-label="Secciones">
+        <a class="opt" href="#funciones">Funciones</a>
+        <a href="#descargas">Descargas</a>
+        <a class="opt" href="#empezar">Cómo empezar</a>
+        <a href="https://github.com/Pausiar/openCam">GitHub</a>
+      </nav>
+    </div>
+  </header>
+
   <main>
-    <h1>OpenCam</h1>
-    <p class="lede">Usa tu móvil como cámara web en tu ordenador.</p>
-    <p class="muted">Cada tarjeta indica lo que está probado y lo que solo compila.</p>
-    <p class="version" id="version">Cargando la última versión…</p>
+    <div class="wrap hero">
+      <h1>Tu móvil, la webcam de tu ordenador.</h1>
+      <p class="lede">OpenCam usa la cámara de tu Android o iPhone en Zoom, Meet, Teams u OBS. Por USB o Wi-Fi, con la calidad que elijas. Libre y sin marcas de agua.</p>
+      <div class="ctas">
+        <a class="btn" id="cta" href="#descargas">Descargar</a>
+        <a class="btn ghost" href="https://github.com/Pausiar/openCam">Ver el código</a>
+      </div>
+      <p class="version" id="version">Cargando la última versión…</p>
 
-    <section class="grid">
-      <article class="card">
-        <h2>Linux (escritorio)</h2>
-        <p class="status">Compila, sin probar con cámara</p>
-        <ul>
-          <li>Cliente que recibe el vídeo del móvil y lo publica en <code>/dev/videoN</code>.</li>
-          <li>Requiere el módulo <code>v4l2loopback</code> cargado.</li>
-        </ul>
-        <a class="btn" href="https://github.com/Pausiar/openCam/releases/latest/download/opencam-desktop-linux-x86_64">Descargar</a>
-      </article>
+      <figure class="diagram">
+        <img src="img/como-funciona.svg" width="760" height="200" alt="El móvil captura y codifica H.264, lo envía por USB o Wi-Fi al ordenador, y el cliente de OpenCam lo publica como cámara virtual para Zoom, Meet, OBS o Teams.">
+      </figure>
+      <!-- CAPTURAS PENDIENTES: añade aquí img/captura-android.png y img/captura-escritorio.png cuando existan. -->
+    </div>
 
-      <article class="card">
-        <h2>Windows (instalador)</h2>
-        <p class="status">Compila en CI, sin probar en Windows</p>
-        <ul>
-          <li>Instala el cliente y la cámara virtual (64 bits) y la registra.</li>
-          <li>La cámara ofrece 1080p, 720p y 480p a 30 fps.</li>
-        </ul>
-        <a class="btn" href="https://github.com/Pausiar/openCam/releases/latest/download/opencam-setup-windows-x86_64.exe">Descargar</a>
-      </article>
-
-      <article class="card">
-        <h2>Cámara virtual para Windows</h2>
-        <p class="status">Solo para registrarla a mano</p>
-        <ul>
-          <li>Filtro DirectShow suelto (<code>opencam_vcam.dll</code>), 64 bits.</li>
-          <li>El instalador ya lo incluye; esta descarga sirve para registrarlo con <code>regsvr32</code>.</li>
-        </ul>
-        <a class="btn" href="https://github.com/Pausiar/openCam/releases/latest/download/opencam-vcam-windows-x86_64.dll">Descargar</a>
-      </article>
-
-      <article class="card">
-        <h2>Android</h2>
-        <p class="status">Tests en CI, sin probar en un móvil</p>
-        <ul>
-          <li>APK firmada, instalable directamente.</li>
-          <li>Hay que permitir la instalación desde fuentes desconocidas.</li>
-        </ul>
-        <a class="btn" href="https://github.com/Pausiar/openCam/releases/latest/download/opencam-android.apk">Descargar</a>
-      </article>
-
-      <article class="card">
-        <h2>macOS (escritorio)</h2>
-        <p class="status">Solo salida Y4M, sin cámara virtual</p>
-        <ul>
-          <li>Cliente para Macs con Apple Silicon (M1 o posterior).</li>
-          <li>Vuelca el vídeo en formato Y4M (por ejemplo, para ffplay u OBS); todavía no crea una cámara virtual. Sin probar en un Mac.</li>
-          <li>Como el binario no va firmado, macOS pide abrirlo con clic derecho y después Abrir.</li>
-        </ul>
-        <a class="btn" href="https://github.com/Pausiar/openCam/releases/latest/download/opencam-desktop-macos-arm64-sin-camara-virtual-solo-y4m">Descargar</a>
-      </article>
-
-      <article class="card">
-        <h2>iPhone</h2>
-        <p class="status">Sin descarga</p>
-        <ul>
-          <li>La app de iOS se compila desde el repositorio con Xcode y una firma de Apple.</li>
-          <li>Sin probar en un iPhone real todavía.</li>
-        </ul>
-        <span class="btn is-off">No disponible</span>
-      </article>
+    <section id="funciones">
+      <div class="wrap">
+        <div class="head">
+          <h2>Lo que hace</h2>
+          <p class="muted">El móvil hace el trabajo pesado: graba y comprime el vídeo por hardware. El ordenador solo lo recibe y lo ofrece como una cámara más.</p>
+        </div>
+        <div class="grid">
+          <article class="card feature">
+            <div class="ico" aria-hidden="true"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="5" width="18" height="14" rx="2"/><path d="M8 10h8M8 14h5"/></svg></div>
+            <h3>Resolución, fps y bitrate</h3>
+            <p>Elige 1080p, 720p o 480p, los fotogramas por segundo y el bitrate. Baja la calidad si la Wi-Fi va justa.</p>
+          </article>
+          <article class="card feature">
+            <div class="ico" aria-hidden="true"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M5 12.5a10 10 0 0 1 14 0M8.5 16a5 5 0 0 1 7 0"/><circle cx="12" cy="19.5" r="1"/></svg></div>
+            <h3>USB o Wi-Fi</h3>
+            <p>Por cable para la menor latencia, o por la red de casa. En Wi-Fi el ordenador encuentra el móvil solo.</p>
+          </article>
+          <article class="card feature">
+            <div class="ico" aria-hidden="true"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 12a8 8 0 0 1 14-5.3M20 12a8 8 0 0 1-14 5.3"/><path d="M18 3v4h-4M6 21v-4h4"/></svg></div>
+            <h3>Reconexión automática</h3>
+            <p>Si se suelta el cable o se corta la red, vuelve a conectar sin que tengas que reiniciar nada.</p>
+          </article>
+          <article class="card feature">
+            <div class="ico" aria-hidden="true"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="2" y="7" width="14" height="10" rx="2"/><path d="m16 11 6-3v8l-6-3"/></svg></div>
+            <h3>Cámara virtual</h3>
+            <p>En Windows aparece como <em>OpenCam Virtual Camera</em> y en Linux como un <code>/dev/video</code>. Cualquier app la puede usar.</p>
+          </article>
+          <article class="card feature">
+            <div class="ico" aria-hidden="true"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M13 2 4 14h7l-1 8 9-12h-7z"/></svg></div>
+            <h3>H.264 por hardware</h3>
+            <p>Usa el codificador del móvil, así que gasta poca batería y el retraso es bajo.</p>
+          </article>
+          <article class="card feature">
+            <div class="ico" aria-hidden="true"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="m8 7-5 5 5 5M16 7l5 5-5 5"/></svg></div>
+            <h3>Código abierto</h3>
+            <p>Sin cuentas, sin anuncios y sin telemetría. El protocolo está documentado y puedes compilarlo todo tú.</p>
+          </article>
+        </div>
+      </div>
     </section>
 
-    <footer>
-      <p>Código fuente y notas de instalación en <a href="https://github.com/Pausiar/openCam">GitHub</a>.
-      Todas las descargas salen de la <a href="https://github.com/Pausiar/openCam/releases">última release</a>.</p>
-    </footer>
+    <section id="descargas">
+      <div class="wrap">
+        <div class="head">
+          <h2>Descargas</h2>
+          <p class="muted">Necesitas la app en el móvil y el cliente en el ordenador. OpenCam está en desarrollo: cada tarjeta dice con sinceridad qué está probado y qué solo compila.</p>
+        </div>
+        <div class="grid">
+          <article class="card dl" data-os="android">
+            <span class="rec">Para tu dispositivo</span>
+            <h3>Android</h3>
+            <p class="status">Tests en CI, sin probar en un móvil</p>
+            <ul>
+              <li>APK firmada, se instala directamente.</li>
+              <li>Hay que permitir instalar desde fuentes desconocidas.</li>
+            </ul>
+            <a class="btn" href="https://github.com/Pausiar/openCam/releases/latest/download/opencam-android.apk">Descargar APK</a>
+          </article>
+
+          <article class="card dl" data-os="windows">
+            <span class="rec">Para tu dispositivo</span>
+            <h3>Windows</h3>
+            <p class="status">Compila en CI, sin probar en Windows</p>
+            <ul>
+              <li>Instala el cliente y la cámara virtual (64 bits) y la registra.</li>
+              <li>La cámara ofrece 1080p, 720p y 480p a 30 fps.</li>
+            </ul>
+            <a class="btn" href="https://github.com/Pausiar/openCam/releases/latest/download/opencam-setup-windows-x86_64.exe">Descargar instalador</a>
+          </article>
+
+          <article class="card dl" data-os="linux">
+            <span class="rec">Para tu dispositivo</span>
+            <h3>Linux</h3>
+            <p class="status">Compila, sin probar con cámara</p>
+            <ul>
+              <li>Publica el vídeo en <code>/dev/videoN</code>.</li>
+              <li>Requiere el módulo <code>v4l2loopback</code>.</li>
+            </ul>
+            <a class="btn" href="https://github.com/Pausiar/openCam/releases/latest/download/opencam-desktop-linux-x86_64">Descargar (x86_64)</a>
+          </article>
+
+          <article class="card dl" data-os="mac">
+            <span class="rec">Para tu dispositivo</span>
+            <h3>macOS</h3>
+            <p class="status">Solo salida Y4M, sin cámara virtual</p>
+            <ul>
+              <li>Para Macs con Apple Silicon (M1 o posterior).</li>
+              <li>Saca el vídeo en Y4M para ffplay u OBS; aún no crea una cámara virtual.</li>
+              <li>No va firmado: ábrelo con clic derecho y después Abrir.</li>
+            </ul>
+            <a class="btn" href="https://github.com/Pausiar/openCam/releases/latest/download/opencam-desktop-macos-arm64-sin-camara-virtual-solo-y4m">Descargar (arm64)</a>
+          </article>
+
+          <article class="card dl" data-os="ios">
+            <span class="rec">Para tu dispositivo</span>
+            <h3>iPhone</h3>
+            <p class="status">Sin descarga</p>
+            <ul>
+              <li>Se compila desde el repositorio con Xcode y una firma de Apple.</li>
+              <li>Por ahora se conecta por USB con el cliente de Linux.</li>
+            </ul>
+            <a class="btn ghost" href="https://github.com/Pausiar/openCam/blob/main/ios/README.md">Instrucciones</a>
+          </article>
+
+          <article class="card dl">
+            <h3>Piezas sueltas de Windows</h3>
+            <p class="status">Para usuarios avanzados</p>
+            <ul>
+              <li>El cliente sin instalador y la cámara virtual (<code>opencam_vcam.dll</code>) para registrarla con <code>regsvr32</code>.</li>
+            </ul>
+            <div class="ctas" style="margin:auto 0 0">
+              <a class="btn ghost" href="https://github.com/Pausiar/openCam/releases/latest/download/opencam-desktop-windows-x86_64.exe">Cliente .exe</a>
+              <a class="btn ghost" href="https://github.com/Pausiar/openCam/releases/latest/download/opencam-vcam-windows-x86_64.dll">Cámara .dll</a>
+            </div>
+          </article>
+        </div>
+        <p class="muted" style="margin-top:20px">Todas las descargas salen de la <a href="https://github.com/Pausiar/openCam/releases/latest">última release en GitHub</a>.</p>
+      </div>
+    </section>
+
+    <section id="empezar">
+      <div class="wrap">
+        <div class="head">
+          <h2>Cómo empezar</h2>
+          <p class="muted">Tres pasos y lo tienes en tu videollamada.</p>
+        </div>
+        <ol class="steps">
+          <li class="card"><h3>Abre la app en el móvil</h3><p class="muted">Instala OpenCam, da permiso de cámara y pulsa <strong>Iniciar servidor</strong>.</p></li>
+          <li class="card"><h3>Conecta el ordenador</h3><p class="muted">Por USB o por la misma Wi-Fi. El cliente recibe el vídeo y lo ofrece como cámara.</p></li>
+          <li class="card"><h3>Elige OpenCam en tu app</h3><p class="muted">En Zoom, Meet, Teams u OBS, selecciona la cámara de OpenCam.</p></li>
+        </ol>
+
+        <div class="tabs" role="tablist" aria-label="Sistema operativo">
+          <button role="tab" id="tab-windows" aria-controls="p-windows" aria-selected="true">Windows</button>
+          <button role="tab" id="tab-linux" aria-controls="p-linux" aria-selected="false" tabindex="-1">Linux</button>
+          <button role="tab" id="tab-mac" aria-controls="p-mac" aria-selected="false" tabindex="-1">macOS</button>
+        </div>
+
+        <div class="panel" role="tabpanel" id="p-windows" aria-labelledby="tab-windows">
+          <ol>
+            <li>Ejecuta el instalador. Copia el cliente y registra <strong>OpenCam Virtual Camera</strong>.</li>
+            <li>Android por USB: activa la depuración USB y redirige el puerto con <code>adb forward tcp:4747 tcp:4747</code>.</li>
+            <li>Arranca el cliente con la dirección del móvil:</li>
+          </ol>
+<pre><code>opencam-desktop 127.0.0.1:4747          # por USB
+opencam-desktop 192.168.1.50:4747       # por Wi-Fi (IP del móvil)
+opencam-desktop --discover              # buscar móviles en la red</code></pre>
+        </div>
+
+        <div class="panel" role="tabpanel" id="p-linux" aria-labelledby="tab-linux" hidden>
+<pre><code># Crea la cámara virtual
+sudo modprobe v4l2loopback video_nr=10 card_label="OpenCam" exclusive_caps=1
+
+# Android por USB
+adb forward tcp:4747 tcp:4747
+./opencam-desktop-linux-x86_64 127.0.0.1:4747 --device /dev/video10
+
+# iPhone por USB (necesita usbmuxd)
+./opencam-desktop-linux-x86_64 iphone --device /dev/video10</code></pre>
+        </div>
+
+        <div class="panel" role="tabpanel" id="p-mac" aria-labelledby="tab-mac" hidden>
+          <p>Aún no hay cámara virtual en macOS. El cliente saca vídeo Y4M que puedes ver o capturar:</p>
+<pre><code>./opencam-desktop-macos-arm64-sin-camara-virtual-solo-y4m 192.168.1.50:4747 | ffplay -</code></pre>
+        </div>
+
+        <h3 style="margin-top:36px">Ajusta la calidad</h3>
+        <p class="muted">Pásale estas opciones al cliente. Por ejemplo: <code>opencam-desktop 127.0.0.1:4747 --width 1280 --height 720 --fps 60 --bitrate 6000</code></p>
+        <div class="table-wrap">
+          <table>
+            <thead><tr><th>Opción</th><th>Por defecto</th><th>Qué hace</th></tr></thead>
+            <tbody>
+              <tr><td><code>--width</code> <code>--height</code></td><td>1920 × 1080</td><td>Resolución que se pide al móvil.</td></tr>
+              <tr><td><code>--fps</code></td><td>30</td><td>Fotogramas por segundo (si el móvil los admite).</td></tr>
+              <tr><td><code>--bitrate</code></td><td>8000 kbps</td><td>Calidad del vídeo. Bájalo si la Wi-Fi va justa.</td></tr>
+              <tr><td><code>--discover</code></td><td></td><td>Busca móviles con OpenCam en la red local.</td></tr>
+              <tr><td><code>--no-reconnect</code></td><td></td><td>No reintenta si se corta la conexión.</td></tr>
+            </tbody>
+          </table>
+        </div>
+      </div>
+    </section>
+
+    <section id="faq">
+      <div class="wrap">
+        <div class="head"><h2>Preguntas frecuentes</h2></div>
+        <details>
+          <summary>¿Es gratis?</summary>
+          <p>Sí. Es código abierto, sin anuncios, sin marcas de agua y sin límites de resolución.</p>
+        </details>
+        <details>
+          <summary>¿USB o Wi-Fi?</summary>
+          <p>USB da menos retraso y carga el móvil a la vez. Wi-Fi es más cómodo; si ves cortes, baja el bitrate con <code>--bitrate</code>.</p>
+        </details>
+        <details>
+          <summary>¿Puedo bloquear la pantalla del móvil?</summary>
+          <p>En Android la emisión sigue en segundo plano. En iPhone la app tiene que estar en primer plano, porque iOS no deja usar la cámara en segundo plano.</p>
+        </details>
+        <details>
+          <summary>¿Funciona ya en mi equipo?</summary>
+          <p>Todo compila y pasa los tests en CI, pero aún falta probarlo en más hardware real. Si lo pruebas, <a href="https://github.com/Pausiar/openCam/issues">cuéntanos cómo te ha ido</a>: es lo que más ayuda ahora.</p>
+        </details>
+      </div>
+    </section>
   </main>
 
+  <footer>
+    <div class="wrap">
+      <span>OpenCam · proyecto de código abierto</span>
+      <span><a href="https://github.com/Pausiar/openCam">GitHub</a> · <a href="https://github.com/Pausiar/openCam/releases">Releases</a> · <a href="https://github.com/Pausiar/openCam/issues">Informar de un problema</a></span>
+    </div>
+  </footer>
+
   <script>
-    // Muestra la versión y fecha de la última release. Si la API no responde,
-    // el texto de carga se queda como está; los enlaces siguen funcionando.
+    // Versión de la última release. Si la API falla, los enlaces siguen funcionando.
     (async () => {
       const el = document.getElementById('version');
       try {
@@ -160,9 +405,53 @@
         const fecha = new Date(rel.published_at).toLocaleDateString('es-ES', { year: 'numeric', month: 'long', day: 'numeric' });
         el.textContent = `Última versión: ${rel.tag_name}, publicada el ${fecha}.`;
       } catch {
-        el.textContent = 'Consulta la última release en GitHub.';
+        el.innerHTML = 'Consulta la <a href="https://github.com/Pausiar/openCam/releases/latest">última release en GitHub</a>.';
       }
     })();
+
+    // Detecta el sistema, destaca su tarjeta y ajusta el botón principal y la pestaña.
+    (() => {
+      const ua = navigator.userAgent;
+      const os = /Android/i.test(ua) ? 'android'
+        : /iPhone|iPad|iPod/i.test(ua) ? 'ios'
+        : /Windows/i.test(ua) ? 'windows'
+        : /Mac/i.test(ua) ? 'mac'
+        : /Linux/i.test(ua) ? 'linux' : null;
+      const labels = { android: 'Descargar para Android', windows: 'Descargar para Windows', linux: 'Descargar para Linux', mac: 'Descargar para macOS', ios: 'Ver opciones para iPhone' };
+      const card = os && document.querySelector(`.card.dl[data-os="${os}"]`);
+      if (card) {
+        card.classList.add('is-rec');
+        card.parentElement.prepend(card);
+        const cta = document.getElementById('cta');
+        const link = card.querySelector('a.btn');
+        cta.textContent = labels[os];
+        if (link && os !== 'ios') cta.href = link.href;
+      }
+      if (os === 'linux' || os === 'mac') selectTab(document.getElementById('tab-' + os));
+    })();
+
+    // Pestañas accesibles (clic y flechas).
+    function selectTab(tab) {
+      const tabs = [...document.querySelectorAll('[role="tab"]')];
+      tabs.forEach(t => {
+        const on = t === tab;
+        t.setAttribute('aria-selected', on);
+        t.tabIndex = on ? 0 : -1;
+        document.getElementById(t.getAttribute('aria-controls')).hidden = !on;
+      });
+    }
+    document.querySelector('.tabs').addEventListener('click', e => {
+      if (e.target.matches('[role="tab"]')) selectTab(e.target);
+    });
+    document.querySelector('.tabs').addEventListener('keydown', e => {
+      const tabs = [...document.querySelectorAll('[role="tab"]')];
+      const i = tabs.indexOf(document.activeElement);
+      if (i < 0) return;
+      const d = e.key === 'ArrowRight' ? 1 : e.key === 'ArrowLeft' ? -1 : 0;
+      if (!d) return;
+      const next = tabs[(i + d + tabs.length) % tabs.length];
+      selectTab(next); next.focus(); e.preventDefault();
+    });
   </script>
 </body>
 </html>

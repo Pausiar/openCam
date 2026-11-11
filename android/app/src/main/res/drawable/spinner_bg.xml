@@ -1,0 +1,17 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Desplegable: recuadro redondeado con la flecha a la derecha. -->
+<layer-list xmlns:android="http://schemas.android.com/apk/res/android">
+    <item>
+        <shape android:shape="rectangle">
+            <solid android:color="@color/card" />
+            <stroke android:width="1dp" android:color="@color/border" />
+            <corners android:radius="10dp" />
+        </shape>
+    </item>
+    <item
+        android:width="18dp"
+        android:height="18dp"
+        android:end="8dp"
+        android:gravity="end|center_vertical"
+        android:drawable="@drawable/ic_expand_more_muted" />
+</layer-list>

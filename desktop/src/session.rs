@@ -1,7 +1,10 @@
 //! Bucle de sesión: conecta, negocia y sirve; si se pierde la conexión, reconecta con backoff.
-//! Los mensajes de estado van a stderr: stdout puede ser el flujo Y4M (`--output -`).
+//! El estado se notifica a un [`Observer`]: la CLI lo escribe en stderr (stdout puede ser el
+//! flujo Y4M de `--output -`) y la interfaz gráfica lo muestra en la ventana.
 
 use std::io;
+use std::sync::mpsc::Receiver;
+use std::sync::Mutex;
 use std::thread::sleep;
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
@@ -9,18 +12,69 @@ use opencam_core::protocol::MsgType;
 use opencam_core::{Backoff, BitrateConfig, BitrateController, Metrics};
 
 use crate::cli::Cli;
-use crate::client::{self, handshake, Client};
+use crate::client::{self, Client, Sender};
+use crate::convert::mirror_yuyv;
 use crate::decoder::VideoDecoder;
+use crate::pairing::PairingStore;
+use crate::settings::{Command, LiveSettings};
 use crate::sink::FrameSink;
+use crate::transport;
 
-const CONNECT_TIMEOUT: Duration = Duration::from_secs(5);
 const HANDSHAKE_TIMEOUT: Duration = Duration::from_secs(5);
 const QUEUE_CAPACITY: usize = 4;
 
+/// Lo que ocurre durante la sesión, para mostrarlo al usuario.
+#[derive(Debug, Clone, PartialEq)]
+pub enum Event {
+    Connecting(String),
+    Connected {
+        caps: String,
+        via: String,
+    },
+    Retrying {
+        error: String,
+        delay_ms: u64,
+    },
+    Stats {
+        fps: u32,
+        rtt_ms: u32,
+        dropped: u32,
+        bitrate_kbps: u32,
+    },
+    Warning(String),
+}
+
+/// Recibe los eventos de la sesión y decide si hay que pararla.
+pub trait Observer {
+    fn event(&self, _e: Event) {}
+    /// Frame YUYV ya escalado al tamaño de salida (para la vista previa).
+    fn frame(&self, _yuyv: &[u8], _width: usize, _height: usize) {}
+    /// Conexión negociada: quien quiera cortar la sesión desde otro hilo cierra este `Sender`.
+    fn connected(&self, _tx: &Sender) {}
+    fn should_stop(&self) -> bool {
+        false
+    }
+}
+
+/// Observador de la CLI: escribe el estado en stderr.
+pub struct Stderr;
+
+impl Observer for Stderr {
+    fn event(&self, e: Event) {
+        match e {
+            Event::Connecting(_) | Event::Stats { .. } => {}
+            Event::Connected { caps, via } => eprintln!("Conectado por {via}. CAPS: {caps}"),
+            Event::Retrying { error, delay_ms } => {
+                eprintln!("Conexión perdida ({error}); reintentando en {delay_ms} ms")
+            }
+            Event::Warning(w) => eprintln!("{w}"),
+        }
+    }
+}
+
 /// Cómo termina una conexión servida.
 pub enum End {
-    /// Fin normal: no se reconecta (solo lo usan los tests; en producción la sesión no termina).
-    #[cfg_attr(not(test), allow(dead_code))]
+    /// Fin normal (el usuario la detiene): no se reconecta.
     Done,
     /// Conexión perdida: se reconecta salvo `--no-reconnect`.
     Lost(io::Error),
@@ -28,40 +82,68 @@ pub enum End {
     Fatal(io::Error),
 }
 
-fn connect(cli: &Cli) -> io::Result<Client> {
-    if cli.addr == "iphone" {
-        #[cfg(unix)]
-        return Client::from_stream(Box::new(crate::usbmuxd::connect_iphone_with(
-            4747,
-            cli.udid.as_deref(),
-        )?));
-        #[cfg(not(unix))]
-        return Err(io::Error::other(
-            "`iphone` solo está disponible en macOS y Linux",
-        ));
-    }
-    Client::connect(cli.addr.as_str(), CONNECT_TIMEOUT)
-}
-
 /// Repite conectar + handshake + `serve` hasta un fin normal o fatal (o un único intento con
 /// `--no-reconnect`). El backoff se reinicia tras cada handshake correcto.
-pub fn run(cli: &Cli, mut serve: impl FnMut(&mut Client) -> End) -> io::Result<()> {
-    let config = cli.config_json();
+/// Cada handshake pide los ajustes en vivo actuales (lo cambiado en vivo se conserva).
+pub fn run(
+    cli: &Cli,
+    live: &Mutex<LiveSettings>,
+    obs: &dyn Observer,
+    serve: impl FnMut(&mut Client) -> End,
+) -> io::Result<()> {
+    run_with(cli, live, &mut PairingStore::load_default(), obs, serve)
+}
+
+/// Como `run`, con un almacén de emparejamientos concreto (los tests usan uno en memoria).
+/// El código de `--code` solo se usa hasta el primer emparejamiento correcto: después
+/// basta la clave guardada.
+pub fn run_with(
+    cli: &Cli,
+    live: &Mutex<LiveSettings>,
+    store: &mut PairingStore,
+    obs: &dyn Observer,
+    mut serve: impl FnMut(&mut Client) -> End,
+) -> io::Result<()> {
+    let mut code = cli.code.clone();
     let seed = SystemTime::now()
         .duration_since(UNIX_EPOCH)
         .map_or(1, |d| d.as_nanos() as u64);
     let mut backoff = Backoff::new(500, 5000, 20, seed);
     loop {
-        let attempt = connect(cli).and_then(|mut c| {
-            let caps = handshake(&mut c, &config, HANDSHAKE_TIMEOUT)?;
-            Ok((c, caps))
-        });
-        let err = match attempt {
-            Ok((mut client, caps)) => {
+        if obs.should_stop() {
+            return Ok(());
+        }
+        obs.event(Event::Connecting(cli.addr.clone()));
+        let config = cli.config_json(&live.lock().unwrap_or_else(|e| e.into_inner()));
+        let pairing = client::Pairing {
+            store: &mut *store,
+            code: code.as_deref(),
+        };
+        let err = match transport::open(cli, &config, HANDSHAKE_TIMEOUT, pairing) {
+            Ok(transport::Connected {
+                mut client,
+                caps,
+                via,
+            }) => {
                 backoff.reset();
-                eprintln!("Conectado a {}. CAPS: {caps}", cli.addr);
+                client.caps = caps.clone();
+                obs.connected(&client.sender());
+                if client.is_secure() {
+                    code = None; // ya emparejado: las reconexiones usan la clave guardada
+                }
+                let mode = if client.is_secure() {
+                    "cifrado"
+                } else {
+                    "SIN cifrar"
+                };
+                let via = format!("{via} ({mode})");
                 if caps.contains("h265") {
-                    eprintln!("Aviso: el móvil anuncia h265; este escritorio solo decodifica H.264 y lo pide en CONFIG.");
+                    obs.event(Event::Warning("Aviso: el móvil anuncia h265; este escritorio solo decodifica H.264 y lo pide en CONFIG.".into()));
+                }
+                obs.event(Event::Connected { caps, via });
+                if obs.should_stop() {
+                    client.close();
+                    return Ok(());
                 }
                 client.spawn_pinger();
                 let end = serve(&mut client);
@@ -72,14 +154,29 @@ pub fn run(cli: &Cli, mut serve: impl FnMut(&mut Client) -> End) -> io::Result<(
                     End::Lost(e) => e,
                 }
             }
+            // Emparejamiento fallido: reintentar gastaría intentos del código; lo arregla el usuario.
+            Err(e) if client::PairingError::from_io(&e).is_some() => return Err(e),
             Err(e) => e,
         };
+        if obs.should_stop() {
+            return Ok(());
+        }
         if !cli.reconnect {
             return Err(err);
         }
         let delay = backoff.next_delay_ms();
-        eprintln!("Conexión perdida ({err}); reintentando en {delay} ms");
-        sleep(Duration::from_millis(delay));
+        obs.event(Event::Retrying {
+            error: err.to_string(),
+            delay_ms: delay,
+        });
+        // A trozos, para que parar desde la interfaz no espere al backoff entero.
+        let until = Instant::now() + Duration::from_millis(delay);
+        while let Some(left) = until.checked_duration_since(Instant::now()) {
+            if obs.should_stop() {
+                return Ok(());
+            }
+            sleep(left.min(Duration::from_millis(100)));
+        }
     }
 }
 
@@ -96,7 +193,15 @@ fn looks_h265(au: &[u8]) -> bool {
 
 /// Recibe vídeo de una conexión ya negociada hasta que se pierda o falle el sink.
 /// Escala al tamaño del sink (letterbox) aunque el móvil mande otra resolución.
-pub fn serve(client: &mut Client, sink: &mut dyn FrameSink, cli: &Cli) -> End {
+/// Las órdenes de `commands` (consola o ventana) actualizan `live` y se reenvían al móvil como CONFIG.
+pub fn serve(
+    client: &mut Client,
+    sink: &mut dyn FrameSink,
+    cli: &Cli,
+    live: &Mutex<LiveSettings>,
+    commands: Option<&Receiver<Command>>,
+    obs: &dyn Observer,
+) -> End {
     // Decodificador nuevo por conexión: espera el primer keyframe de la sesión.
     let mut decoder = match VideoDecoder::new(QUEUE_CAPACITY) {
         Ok(d) => d,
@@ -105,10 +210,33 @@ pub fn serve(client: &mut Client, sink: &mut dyn FrameSink, cli: &Cli) -> End {
     let (w, h) = (cli.width as usize, cli.height as usize);
     let t0 = Instant::now();
     let mut metrics = Metrics::new(1000, 0);
-    let mut bitrate = BitrateController::new(BitrateConfig::default(), cli.bitrate_kbps);
+    let mut current = live.lock().unwrap_or_else(|e| e.into_inner()).clone();
+    // Con los ajustes del móvil, el control de bitrate parte del que el móvil dice usar en CAPS.
+    let initial = if cli.phone_settings {
+        caps_bitrate(&client.caps).unwrap_or(current.bitrate_kbps)
+    } else {
+        current.bitrate_kbps
+    };
+    let mut bitrate = BitrateController::new(BitrateConfig::default(), initial);
     let (mut last_dropped, mut warned_h265) = (0u64, false);
     loop {
+        // shortcut: las órdenes se atienden al llegar mensajes; con vídeo eso es cada frame.
+        for cmd in commands.into_iter().flat_map(|rx| rx.try_iter()) {
+            let send = current.apply(cmd);
+            *live.lock().unwrap_or_else(|e| e.into_inner()) = current.clone();
+            if let Command::Bitrate(k) = cmd {
+                bitrate = BitrateController::new(BitrateConfig::default(), k);
+            }
+            obs.event(Event::Warning(format!("Ajuste aplicado: {cmd:?}")));
+            if send {
+                let json = cli.config_json(&current);
+                if let Err(e) = client.send(MsgType::Config, 0, json.as_bytes()) {
+                    return End::Lost(e);
+                }
+            }
+        }
         let msg = match client.recv() {
+            Ok(_) | Err(_) if obs.should_stop() => return End::Done,
             Ok(m) => m,
             Err(e) => return End::Lost(e),
         };
@@ -116,7 +244,7 @@ pub fn serve(client: &mut Client, sink: &mut dyn FrameSink, cli: &Cli) -> End {
             Some(MsgType::Video) if looks_h265(&msg.payload) => {
                 if !warned_h265 {
                     warned_h265 = true;
-                    eprintln!("Aviso: el móvil envía H.265 pese a CONFIG h264; no se puede decodificar. Frames ignorados.");
+                    obs.event(Event::Warning("Aviso: el móvil envía H.265 pese a CONFIG h264; no se puede decodificar. Frames ignorados.".into()));
                 }
             }
             Some(MsgType::Video) => {
@@ -124,8 +252,12 @@ pub fn serve(client: &mut Client, sink: &mut dyn FrameSink, cli: &Cli) -> End {
                 let mut need_keyframe =
                     decoder.push_access_unit(msg.payload, msg.timestamp_us, keyframe);
                 match decoder.next_yuyv(w, h) {
-                    Ok(Some(yuyv)) => {
+                    Ok(Some(mut yuyv)) => {
                         metrics.on_decoded();
+                        if current.mirror {
+                            mirror_yuyv(&mut yuyv, w);
+                        }
+                        obs.frame(&yuyv, w, h);
                         if let Err(e) = sink.write_yuyv(&yuyv) {
                             return End::Fatal(e);
                         }
@@ -133,7 +265,7 @@ pub fn serve(client: &mut Client, sink: &mut dyn FrameSink, cli: &Cli) -> End {
                     Ok(None) => {}
                     Err(e) => {
                         // Un frame corrupto no es fatal: se pide un keyframe y se sigue.
-                        eprintln!("error de decodificación: {e}");
+                        obs.event(Event::Warning(format!("error de decodificación: {e}")));
                         need_keyframe = true;
                     }
                 }
@@ -146,9 +278,10 @@ pub fn serve(client: &mut Client, sink: &mut dyn FrameSink, cli: &Cli) -> End {
             Some(MsgType::Pong) => {
                 metrics.on_rtt((client::pong_latency_us(client, &msg) / 1000) as u32)
             }
-            Some(MsgType::Error) => {
-                eprintln!("ERROR del móvil: {}", String::from_utf8_lossy(&msg.payload))
-            }
+            Some(MsgType::Error) => obs.event(Event::Warning(format!(
+                "ERROR del móvil: {}",
+                String::from_utf8_lossy(&msg.payload)
+            ))),
             _ => {}
         }
         // shortcut: STATS se evalúa al llegar mensajes; un móvil mudo ya cae por la conexión.
@@ -157,11 +290,30 @@ pub fn serve(client: &mut Client, sink: &mut dyn FrameSink, cli: &Cli) -> End {
         last_dropped = dropped;
         if let Some(snap) = metrics.poll(t0.elapsed().as_millis() as u64) {
             let target = bitrate.update(snap.rtt_ms, snap.dropped);
+            obs.event(Event::Stats {
+                fps: snap.decoded_fps,
+                rtt_ms: snap.rtt_ms,
+                dropped: snap.dropped,
+                bitrate_kbps: target,
+            });
             if let Err(e) = client.send(MsgType::Stats, 0, snap.to_json(target).as_bytes()) {
                 return End::Lost(e);
             }
         }
     }
+}
+
+/// `bitrate_kbps` del objeto `current` que el móvil incluye en CAPS (sus ajustes locales).
+/// shortcut: búsqueda de texto en vez de un parser JSON; CAPS es JSON plano generado por las apps.
+fn caps_bitrate(caps: &str) -> Option<u32> {
+    let rest = &caps[caps.find("\"current\"")?..];
+    let rest = &rest[rest.find("\"bitrate_kbps\"")? + "\"bitrate_kbps\"".len()..];
+    let digits: String = rest
+        .trim_start_matches([' ', ':'])
+        .chars()
+        .take_while(|c| c.is_ascii_digit())
+        .collect();
+    digits.parse().ok().filter(|n| *n > 0)
 }
 
 #[cfg(test)]
@@ -211,16 +363,22 @@ mod tests {
             }
         });
         let mut served = 0;
-        run(&cli, |c| {
-            served += 1;
-            loop {
-                match c.recv() {
-                    Err(e) if served == 1 => return End::Lost(e),
-                    Err(_) => return End::Done,
-                    Ok(_) => {}
+        run_with(
+            &cli,
+            &Mutex::new(cli.live()),
+            &mut PairingStore::in_memory(),
+            &Stderr,
+            |c| {
+                served += 1;
+                loop {
+                    match c.recv() {
+                        Err(e) if served == 1 => return End::Lost(e),
+                        Err(_) => return End::Done,
+                        Ok(_) => {}
+                    }
                 }
-            }
-        })
+            },
+        )
         .unwrap();
         assert_eq!(served, 2);
         phone.join().unwrap();
@@ -235,7 +393,14 @@ mod tests {
             ..Cli::default()
         };
         drop(listener); // nadie escucha
-        assert!(run(&cli, |_| End::Done).is_err());
+        assert!(run_with(
+            &cli,
+            &Mutex::new(cli.live()),
+            &mut PairingStore::in_memory(),
+            &Stderr,
+            |_| End::Done
+        )
+        .is_err());
     }
 
     #[derive(Clone, Default)]
@@ -249,6 +414,15 @@ mod tests {
         fn flush(&mut self) -> io::Result<()> {
             Ok(())
         }
+    }
+
+    #[test]
+    fn caps_bitrate_reads_current() {
+        assert_eq!(
+            caps_bitrate(r#"{"fps":[30],"current":{"width":1280,"bitrate_kbps": 4000}}"#),
+            Some(4000)
+        );
+        assert_eq!(caps_bitrate(r#"{"fps":[30]}"#), None);
     }
 
     #[test]
@@ -335,7 +509,17 @@ mod tests {
 
         let out = Shared::default();
         let mut sink = crate::sink::Y4mSink::new(out.clone(), 1920, 1080, 30).unwrap();
-        assert!(run(&cli, |c| serve(c, &mut sink, &cli)).is_err()); // el móvil cierra: Lost sin reconexión
+        let live = Mutex::new(cli.live());
+        let (tx, rx) = std::sync::mpsc::channel();
+        tx.send(Command::Zoom(2.0)).unwrap();
+        tx.send(Command::Mirror(true)).unwrap();
+        assert!(
+            run_with(&cli, &live, &mut PairingStore::in_memory(), &Stderr, |c| {
+                serve(c, &mut sink, &cli, &live, Some(&rx), &Stderr)
+            })
+            .is_err()
+        );
+        assert_eq!(live.lock().unwrap().zoom, Some(2.0)); // el móvil cierra: Lost sin reconexión
         let stats = phone.join().unwrap();
         assert!(
             stats.contains(r#""target_bitrate_kbps":8000"#) && stats.contains("decoded_fps"),
@@ -356,5 +540,40 @@ mod tests {
         let y = &body[6..];
         assert!(y[540 * 1920 + 960].abs_diff(120) <= 4);
         assert!(y[0].abs_diff(120) <= 4);
+    }
+
+    /// Un móvil que pide código: el bucle se detiene en vez de reintentar (gastaría intentos).
+    #[test]
+    fn pairing_error_stops_reconnecting() {
+        let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+        let cli = Cli {
+            addr: listener.local_addr().unwrap().to_string(),
+            ..Cli::default()
+        };
+        let phone = std::thread::spawn(move || {
+            let (mut s, _) = listener.accept().unwrap();
+            assert_eq!(read_type(&mut s), MsgType::Hello.code());
+            let kp = opencam_core::secure::KeyPair::generate().unwrap();
+            let hello = format!(
+                r#"{{"secure":1,"phone_id":"a1b2c3d4","pub":"{}","auth":"code"}}"#,
+                opencam_core::secure::to_hex(&kp.public_bytes())
+            );
+            write_type(&mut s, MsgType::Hello, hello.as_bytes());
+            // Sin segundo accept: si el escritorio reintentara, el test se colgaría en connect.
+            listener
+        });
+        let err = run_with(
+            &cli,
+            &Mutex::new(cli.live()),
+            &mut PairingStore::in_memory(),
+            &Stderr,
+            |_| End::Done,
+        )
+        .unwrap_err();
+        assert_eq!(
+            client::PairingError::from_io(&err),
+            Some(&client::PairingError::NeedCode)
+        );
+        drop(phone.join().unwrap());
     }
 }

@@ -1,22 +1,695 @@
 <?xml version="1.0" encoding="utf-8"?>
+<!--
+  La actividad va en horizontal (la imagen de la cámara sale derecha así): barra de navegación
+  a la izquierda (Inicio, Conexión, Ajustes) y una página a la derecha.
+-->
 <LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
     android:layout_width="match_parent"
     android:layout_height="match_parent"
-    android:orientation="vertical"
-    android:gravity="center"
-    android:padding="24dp">
+    android:background="@color/bg"
+    android:orientation="horizontal">
 
-    <TextView
-        android:id="@+id/status"
-        android:layout_width="wrap_content"
-        android:layout_height="wrap_content"
-        android:textSize="18sp"
-        android:text="Parado" />
+    <!-- Barra de navegación -->
+    <LinearLayout
+        android:layout_width="84dp"
+        android:layout_height="match_parent"
+        android:background="@color/sidebar"
+        android:gravity="center_horizontal"
+        android:orientation="vertical"
+        android:paddingTop="14dp">
 
-    <Button
-        android:id="@+id/toggle"
-        android:layout_width="wrap_content"
-        android:layout_height="wrap_content"
-        android:layout_marginTop="24dp"
-        android:text="Iniciar" />
+        <ImageView
+            android:layout_width="40dp"
+            android:layout_height="40dp"
+            android:layout_marginBottom="8dp"
+            android:contentDescription="OpenCam"
+            android:src="@drawable/ic_logo" />
+
+        <LinearLayout
+            android:id="@+id/nav_home"
+            style="@style/NavItem">
+
+            <ImageView
+                android:id="@+id/nav_home_icon"
+                style="@style/NavIcon"
+                android:importantForAccessibility="no"
+                android:src="@drawable/ic_home" />
+
+            <TextView
+                android:id="@+id/nav_home_text"
+                style="@style/NavText"
+                android:text="Inicio" />
+        </LinearLayout>
+
+        <LinearLayout
+            android:id="@+id/nav_conn"
+            style="@style/NavItem">
+
+            <ImageView
+                android:id="@+id/nav_conn_icon"
+                style="@style/NavIcon"
+                android:importantForAccessibility="no"
+                android:src="@drawable/ic_link" />
+
+            <TextView
+                android:id="@+id/nav_conn_text"
+                style="@style/NavText"
+                android:text="Conexión" />
+        </LinearLayout>
+
+        <LinearLayout
+            android:id="@+id/nav_settings"
+            style="@style/NavItem">
+
+            <ImageView
+                android:id="@+id/nav_settings_icon"
+                style="@style/NavIcon"
+                android:importantForAccessibility="no"
+                android:src="@drawable/ic_settings" />
+
+            <TextView
+                android:id="@+id/nav_settings_text"
+                style="@style/NavText"
+                android:text="Ajustes" />
+        </LinearLayout>
+    </LinearLayout>
+
+    <FrameLayout
+        android:layout_width="0dp"
+        android:layout_height="match_parent"
+        android:layout_weight="1">
+
+        <!-- ─────────────── Inicio ─────────────── -->
+        <ScrollView
+            android:id="@+id/page_home"
+            android:layout_width="match_parent"
+            android:layout_height="match_parent">
+
+            <LinearLayout
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:orientation="vertical"
+                android:padding="16dp">
+
+                <!-- Cabecera -->
+                <LinearLayout
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:gravity="center_vertical"
+                    android:orientation="horizontal">
+
+                    <LinearLayout
+                        android:layout_width="0dp"
+                        android:layout_height="wrap_content"
+                        android:layout_weight="1"
+                        android:orientation="vertical">
+
+                        <TextView
+                            style="@style/Title"
+                            android:layout_width="wrap_content"
+                            android:layout_height="wrap_content"
+                            android:text="OpenCam" />
+
+                        <TextView
+                            style="@style/Body"
+                            android:layout_width="wrap_content"
+                            android:layout_height="wrap_content"
+                            android:text="Convierte tu móvil en una cámara para PC" />
+                    </LinearLayout>
+
+                    <LinearLayout
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"
+                        android:background="@drawable/pill"
+                        android:gravity="center_vertical"
+                        android:orientation="horizontal"
+                        android:paddingStart="12dp"
+                        android:paddingTop="7dp"
+                        android:paddingEnd="14dp"
+                        android:paddingBottom="7dp">
+
+                        <View
+                            android:id="@+id/status_dot"
+                            android:layout_width="10dp"
+                            android:layout_height="10dp"
+                            android:background="@drawable/dot" />
+
+                        <TextView
+                            android:id="@+id/status_short"
+                            android:layout_width="wrap_content"
+                            android:layout_height="wrap_content"
+                            android:layout_marginStart="8dp"
+                            android:fontFamily="sans-serif-medium"
+                            android:text="Servidor parado"
+                            android:textColor="@color/text"
+                            android:textSize="14sp" />
+                    </LinearLayout>
+                </LinearLayout>
+
+                <!-- Cámara y datos para el PC -->
+                <LinearLayout
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:layout_marginTop="14dp"
+                    android:baselineAligned="false"
+                    android:orientation="horizontal">
+
+                    <FrameLayout
+                        android:layout_width="0dp"
+                        android:layout_height="match_parent"
+                        android:layout_marginEnd="12dp"
+                        android:layout_weight="1.1"
+                        android:background="@drawable/camera_card"
+                        android:minHeight="210dp">
+
+                        <LinearLayout
+                            android:id="@+id/facing_chip"
+                            android:layout_width="wrap_content"
+                            android:layout_height="wrap_content"
+                            android:layout_gravity="top|start"
+                            android:layout_margin="10dp"
+                            android:background="@drawable/chip"
+                            android:clickable="true"
+                            android:focusable="true"
+                            android:gravity="center_vertical"
+                            android:orientation="horizontal"
+                            android:paddingStart="10dp"
+                            android:paddingTop="6dp"
+                            android:paddingEnd="6dp"
+                            android:paddingBottom="6dp">
+
+                            <ImageView
+                                android:layout_width="18dp"
+                                android:layout_height="18dp"
+                                android:importantForAccessibility="no"
+                                android:src="@drawable/ic_photo_camera" />
+
+                            <TextView
+                                android:id="@+id/facing_text"
+                                android:layout_width="wrap_content"
+                                android:layout_height="wrap_content"
+                                android:layout_marginStart="8dp"
+                                android:text="Cámara trasera"
+                                android:textColor="@android:color/white"
+                                android:textSize="13sp" />
+
+                            <ImageView
+                                android:layout_width="18dp"
+                                android:layout_height="18dp"
+                                android:layout_marginStart="2dp"
+                                android:importantForAccessibility="no"
+                                android:src="@drawable/ic_expand_more" />
+                        </LinearLayout>
+
+                        <LinearLayout
+                            android:layout_width="match_parent"
+                            android:layout_height="wrap_content"
+                            android:layout_gravity="center"
+                            android:gravity="center_horizontal"
+                            android:orientation="vertical"
+                            android:paddingStart="20dp"
+                            android:paddingEnd="20dp">
+
+                            <ImageView
+                                android:id="@+id/status_icon"
+                                android:layout_width="40dp"
+                                android:layout_height="40dp"
+                                android:alpha="0.75"
+                                android:importantForAccessibility="no"
+                                android:src="@drawable/ic_videocam" />
+
+                            <TextView
+                                android:id="@+id/status"
+                                android:layout_width="wrap_content"
+                                android:layout_height="wrap_content"
+                                android:layout_marginTop="6dp"
+                                android:gravity="center"
+                                android:text="Parado"
+                                android:textColor="@android:color/white"
+                                android:textSize="14sp" />
+                        </LinearLayout>
+
+                        <TextView
+                            android:id="@+id/info_chip"
+                            android:layout_width="wrap_content"
+                            android:layout_height="wrap_content"
+                            android:layout_gravity="bottom|start"
+                            android:layout_margin="10dp"
+                            android:background="@drawable/chip"
+                            android:paddingStart="10dp"
+                            android:paddingTop="5dp"
+                            android:paddingEnd="10dp"
+                            android:paddingBottom="5dp"
+                            android:textColor="@android:color/white"
+                            android:textSize="12sp" />
+
+                        <ImageButton
+                            android:id="@+id/switch_camera"
+                            android:layout_width="40dp"
+                            android:layout_height="40dp"
+                            android:layout_gravity="bottom|end"
+                            android:layout_margin="8dp"
+                            android:background="@drawable/round_button"
+                            android:contentDescription="Cambiar entre cámara trasera y frontal"
+                            android:padding="9dp"
+                            android:scaleType="fitCenter"
+                            android:src="@drawable/ic_sync" />
+                    </FrameLayout>
+
+                    <LinearLayout
+                        style="@style/Card"
+                        android:layout_width="0dp"
+                        android:layout_height="wrap_content"
+                        android:layout_weight="1"
+                        android:orientation="vertical">
+
+                        <TextView
+                            style="@style/CardTitle"
+                            android:layout_width="wrap_content"
+                            android:layout_height="wrap_content"
+                            android:text="Dirección del servidor" />
+
+                        <LinearLayout
+                            android:layout_width="match_parent"
+                            android:layout_height="wrap_content"
+                            android:layout_marginTop="6dp"
+                            android:background="@drawable/field"
+                            android:gravity="center_vertical"
+                            android:minHeight="44dp"
+                            android:orientation="horizontal"
+                            android:paddingStart="12dp">
+
+                            <TextView
+                                android:id="@+id/wifi"
+                                android:layout_width="0dp"
+                                android:layout_height="wrap_content"
+                                android:layout_weight="1"
+                                android:fontFamily="monospace"
+                                android:paddingTop="8dp"
+                                android:paddingBottom="8dp"
+                                android:textColor="@color/text"
+                                android:textIsSelectable="true"
+                                android:textSize="15sp" />
+
+                            <ImageButton
+                                android:id="@+id/copy"
+                                android:layout_width="44dp"
+                                android:layout_height="44dp"
+                                android:background="?android:attr/selectableItemBackgroundBorderless"
+                                android:contentDescription="Copiar la dirección"
+                                android:padding="11dp"
+                                android:scaleType="fitCenter"
+                                android:src="@drawable/ic_copy"
+                                android:tint="@color/muted" />
+                        </LinearLayout>
+
+                        <TextView
+                            android:id="@+id/pairing_label"
+                            style="@style/Body"
+                            android:layout_width="wrap_content"
+                            android:layout_height="wrap_content"
+                            android:layout_marginTop="10dp"
+                            android:text="El código de emparejamiento aparece aquí al pulsar Iniciar." />
+
+                        <TextView
+                            android:id="@+id/pairing"
+                            android:layout_width="wrap_content"
+                            android:layout_height="wrap_content"
+                            android:fontFamily="monospace"
+                            android:letterSpacing="0.05"
+                            android:textColor="@color/accent_dark"
+                            android:textIsSelectable="true"
+                            android:textSize="32sp"
+                            android:textStyle="bold"
+                            android:visibility="gone" />
+
+                        <Button
+                            android:id="@+id/toggle"
+                            style="@style/PrimaryButton"
+                            android:layout_width="match_parent"
+                            android:layout_height="wrap_content"
+                            android:layout_marginTop="10dp"
+                            android:text="Iniciar servidor" />
+                    </LinearLayout>
+                </LinearLayout>
+
+                <!-- Ajustes rápidos -->
+                <LinearLayout
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:layout_marginTop="12dp"
+                    android:baselineAligned="false"
+                    android:orientation="horizontal">
+
+                    <LinearLayout
+                        style="@style/Card"
+                        android:layout_width="0dp"
+                        android:layout_height="wrap_content"
+                        android:layout_marginEnd="10dp"
+                        android:layout_weight="1"
+                        android:orientation="vertical">
+
+                        <ImageView
+                            style="@style/TileIcon"
+                            android:importantForAccessibility="no"
+                            android:src="@drawable/ic_videocam" />
+
+                        <TextView
+                            style="@style/TileTitle"
+                            android:text="Resolución" />
+
+                        <Spinner
+                            android:id="@+id/resolution"
+                            style="@style/TileSpinner" />
+                    </LinearLayout>
+
+                    <LinearLayout
+                        style="@style/Card"
+                        android:layout_width="0dp"
+                        android:layout_height="wrap_content"
+                        android:layout_marginEnd="10dp"
+                        android:layout_weight="1"
+                        android:orientation="vertical">
+
+                        <ImageView
+                            style="@style/TileIcon"
+                            android:importantForAccessibility="no"
+                            android:src="@drawable/ic_layers" />
+
+                        <TextView
+                            style="@style/TileTitle"
+                            android:text="FPS" />
+
+                        <Spinner
+                            android:id="@+id/fps"
+                            style="@style/TileSpinner" />
+                    </LinearLayout>
+
+                    <LinearLayout
+                        style="@style/Card"
+                        android:layout_width="0dp"
+                        android:layout_height="wrap_content"
+                        android:layout_marginEnd="10dp"
+                        android:layout_weight="1"
+                        android:orientation="vertical">
+
+                        <ImageView
+                            style="@style/TileIcon"
+                            android:importantForAccessibility="no"
+                            android:src="@drawable/ic_tune" />
+
+                        <TextView
+                            style="@style/TileTitle"
+                            android:text="Calidad" />
+
+                        <Spinner
+                            android:id="@+id/bitrate"
+                            style="@style/TileSpinner" />
+                    </LinearLayout>
+
+                    <LinearLayout
+                        style="@style/Card"
+                        android:layout_width="0dp"
+                        android:layout_height="wrap_content"
+                        android:layout_weight="1"
+                        android:orientation="vertical">
+
+                        <ImageView
+                            style="@style/TileIcon"
+                            android:importantForAccessibility="no"
+                            android:src="@drawable/ic_focus" />
+
+                        <TextView
+                            style="@style/TileTitle"
+                            android:text="Lente" />
+
+                        <Spinner
+                            android:id="@+id/lens"
+                            style="@style/TileSpinner" />
+                    </LinearLayout>
+                </LinearLayout>
+
+                <LinearLayout
+                    android:id="@+id/open_advanced"
+                    style="@style/Card"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:layout_marginTop="12dp"
+                    android:clickable="true"
+                    android:focusable="true"
+                    android:foreground="?android:attr/selectableItemBackground"
+                    android:gravity="center_vertical"
+                    android:orientation="horizontal">
+
+                    <ImageView
+                        style="@style/TileIcon"
+                        android:importantForAccessibility="no"
+                        android:src="@drawable/ic_tune" />
+
+                    <TextView
+                        style="@style/CardTitle"
+                        android:layout_width="0dp"
+                        android:layout_height="wrap_content"
+                        android:layout_marginStart="12dp"
+                        android:layout_weight="1"
+                        android:text="Ajustes avanzados" />
+
+                    <ImageView
+                        android:layout_width="24dp"
+                        android:layout_height="24dp"
+                        android:importantForAccessibility="no"
+                        android:src="@drawable/ic_chevron_right"
+                        android:tint="@color/muted" />
+                </LinearLayout>
+
+                <TextView
+                    android:id="@+id/settings_hint"
+                    style="@style/Body"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:layout_marginTop="10dp"
+                    android:text="La calidad se aplica al iniciar. Si en el PC eliges otra, manda la del PC; marca allí «Usar la calidad elegida en el móvil» para usar esta." />
+            </LinearLayout>
+        </ScrollView>
+
+        <!-- ─────────────── Conexión ─────────────── -->
+        <ScrollView
+            android:id="@+id/page_conn"
+            android:layout_width="match_parent"
+            android:layout_height="match_parent"
+            android:visibility="gone">
+
+            <LinearLayout
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:orientation="vertical"
+                android:padding="16dp">
+
+                <TextView
+                    style="@style/Title"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:text="Conexión" />
+
+                <TextView
+                    style="@style/Body"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:text="Cómo encuentra el PC a este móvil" />
+
+                <LinearLayout
+                    style="@style/Card"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:layout_marginTop="14dp"
+                    android:orientation="vertical">
+
+                    <LinearLayout
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:gravity="center_vertical"
+                        android:orientation="horizontal">
+
+                        <ImageView
+                            style="@style/TileIcon"
+                            android:importantForAccessibility="no"
+                            android:src="@drawable/ic_wifi" />
+
+                        <TextView
+                            style="@style/CardTitle"
+                            android:layout_width="wrap_content"
+                            android:layout_height="wrap_content"
+                            android:layout_marginStart="10dp"
+                            android:text="Por Wi-Fi" />
+                    </LinearLayout>
+
+                    <TextView
+                        android:id="@+id/wifi_all"
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:layout_marginTop="8dp"
+                        android:fontFamily="monospace"
+                        android:textColor="@color/text"
+                        android:textIsSelectable="true"
+                        android:textSize="16sp" />
+
+                    <TextView
+                        android:id="@+id/device"
+                        style="@style/Body"
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:layout_marginTop="6dp" />
+                </LinearLayout>
+
+                <LinearLayout
+                    style="@style/Card"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:layout_marginTop="12dp"
+                    android:orientation="vertical">
+
+                    <LinearLayout
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:gravity="center_vertical"
+                        android:orientation="horizontal">
+
+                        <ImageView
+                            style="@style/TileIcon"
+                            android:importantForAccessibility="no"
+                            android:src="@drawable/ic_usb" />
+
+                        <TextView
+                            style="@style/CardTitle"
+                            android:layout_width="wrap_content"
+                            android:layout_height="wrap_content"
+                            android:layout_marginStart="10dp"
+                            android:text="Por cable USB" />
+                    </LinearLayout>
+
+                    <TextView
+                        android:id="@+id/usb"
+                        style="@style/Body"
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:layout_marginTop="8dp" />
+                </LinearLayout>
+
+                <LinearLayout
+                    style="@style/Card"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:layout_marginTop="12dp"
+                    android:orientation="vertical">
+
+                    <LinearLayout
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:gravity="center_vertical"
+                        android:orientation="horizontal">
+
+                        <ImageView
+                            style="@style/TileIcon"
+                            android:importantForAccessibility="no"
+                            android:src="@drawable/ic_key" />
+
+                        <TextView
+                            style="@style/CardTitle"
+                            android:layout_width="wrap_content"
+                            android:layout_height="wrap_content"
+                            android:layout_marginStart="10dp"
+                            android:text="Emparejamiento" />
+                    </LinearLayout>
+
+                    <TextView
+                        style="@style/Body"
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:layout_marginTop="8dp"
+                        android:text="La primera vez el PC pide el código de 6 dígitos que sale en Inicio. Después los dos guardan una clave y la conexión va cifrada." />
+
+                    <Button
+                        android:id="@+id/forget"
+                        style="@style/TextButton"
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"
+                        android:layout_marginTop="4dp"
+                        android:text="Olvidar ordenadores emparejados" />
+                </LinearLayout>
+            </LinearLayout>
+        </ScrollView>
+
+        <!-- ─────────────── Ajustes ─────────────── -->
+        <ScrollView
+            android:id="@+id/page_settings"
+            android:layout_width="match_parent"
+            android:layout_height="match_parent"
+            android:visibility="gone">
+
+            <LinearLayout
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:orientation="vertical"
+                android:padding="16dp">
+
+                <TextView
+                    style="@style/Title"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:text="Ajustes" />
+
+                <TextView
+                    style="@style/Body"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:layout_marginBottom="14dp"
+                    android:text="Se aplican en vivo, también mientras transmites" />
+
+                <include layout="@layout/advanced_settings" />
+
+                <LinearLayout
+                    style="@style/Card"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:layout_marginTop="12dp"
+                    android:orientation="vertical">
+
+                    <LinearLayout
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:gravity="center_vertical"
+                        android:orientation="horizontal">
+
+                        <ImageView
+                            style="@style/TileIcon"
+                            android:importantForAccessibility="no"
+                            android:src="@drawable/ic_info" />
+
+                        <TextView
+                            style="@style/CardTitle"
+                            android:layout_width="wrap_content"
+                            android:layout_height="wrap_content"
+                            android:layout_marginStart="10dp"
+                            android:text="Acerca de" />
+                    </LinearLayout>
+
+                    <TextView
+                        android:id="@+id/version"
+                        style="@style/Body"
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:layout_marginTop="8dp" />
+
+                    <TextView
+                        style="@style/Body"
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:layout_marginTop="4dp"
+                        android:autoLink="web"
+                        android:text="https://github.com/Pausiar/openCam"
+                        android:textColorLink="@color/accent" />
+                </LinearLayout>
+            </LinearLayout>
+        </ScrollView>
+    </FrameLayout>
 </LinearLayout>

@@ -1,0 +1,19 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Paleta lila de OpenCam (la misma que la ventana del escritorio). -->
+<resources>
+    <color name="accent">#6C5CE7</color>
+    <color name="accent_dark">#5444CD</color>
+    <color name="accent_soft">#ECE8FD</color>
+    <color name="bg">#F6F4FD</color>
+    <color name="sidebar">#EFECFB</color>
+    <color name="card">#FFFFFF</color>
+    <color name="border">#E5E1F5</color>
+    <color name="text">#1F1B3A</color>
+    <color name="muted">#6B6788</color>
+    <color name="green">#22C55E</color>
+    <color name="gray_dot">#AAA7BD</color>
+    <color name="preview">#1E1B2E</color>
+    <color name="chip">#8C000000</color>
+    <color name="logo_bg">#4E46BE</color>
+    <color name="logo_top">#7068F0</color>
+</resources>

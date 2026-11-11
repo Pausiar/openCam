@@ -1,0 +1,64 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Ajustes avanzados de vídeo. Los cambia el móvil o el escritorio (CONFIG); se aplican en vivo. -->
+<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    android:id="@+id/advanced"
+    style="@style/Card"
+    android:layout_width="match_parent"
+    android:layout_height="wrap_content"
+    android:orientation="vertical">
+
+    <TextView
+        style="@style/CardTitle"
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:text="Cámara" />
+
+    <TextView
+        android:id="@+id/adv_info"
+        style="@style/Body"
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:layout_marginTop="2dp" />
+
+    <Switch
+        android:id="@+id/adv_front"
+        style="@style/AdvSwitch"
+        android:layout_marginTop="8dp"
+        android:text="Cámara frontal" />
+
+    <Switch
+        android:id="@+id/adv_stab"
+        style="@style/AdvSwitch"
+        android:text="Estabilización" />
+
+    <TextView
+        android:id="@+id/adv_zoom_label"
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:layout_marginTop="8dp"
+        android:text="Zoom: 1.0x"
+        android:textColor="@color/text"
+        android:textSize="15sp" />
+
+    <SeekBar
+        android:id="@+id/adv_zoom"
+        style="@style/AdvSeek" />
+
+    <Switch
+        android:id="@+id/adv_af"
+        style="@style/AdvSwitch"
+        android:layout_marginTop="4dp"
+        android:text="Autoenfoque" />
+
+    <TextView
+        android:id="@+id/adv_focus_label"
+        style="@style/Body"
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:layout_marginTop="4dp"
+        android:text="Enfoque manual" />
+
+    <SeekBar
+        android:id="@+id/adv_focus"
+        style="@style/AdvSeek" />
+</LinearLayout>

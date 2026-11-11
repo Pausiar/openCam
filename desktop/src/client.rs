@@ -1,6 +1,7 @@
 //! Cliente OPCM del escritorio: se conecta al móvil (puerto 4747), negocia y recibe vídeo.
 //!
-//! Flujo: HELLO → CAPS → CONFIG → VIDEO continuo, con PING cada segundo para medir el RTT.
+//! Flujo: HELLO → (AUTH cifrado si el móvil lo soporta) → CAPS → CONFIG → VIDEO continuo,
+//! con PING cada segundo para medir el RTT.
 
 use std::io::{self, Read, Write};
 use std::net::{Shutdown, TcpStream, ToSocketAddrs};
@@ -9,7 +10,19 @@ use std::os::unix::net::UnixStream;
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
-use opencam_core::protocol::{Header, MsgType, ProtoError, HEADER_LEN};
+use std::fmt;
+
+use opencam_core::protocol::{Header, MsgType, ProtoError, HEADER_LEN, MAX_PAYLOAD};
+use opencam_core::secure::{
+    code_psk, from_hex, to_hex, Cipher, KeyPair, Role, SessionKeys, MAX_UNAUTH_PAYLOAD,
+};
+
+use crate::pairing::PairingStore;
+
+/// Sin datos del móvil durante este tiempo, la conexión se da por perdida. El móvil responde un
+/// PONG por segundo, así que solo se cumple si el enlace murió sin cerrarse (Wi-Fi caída, móvil
+/// fuera de alcance, app congelada): sin este plazo, `recv` esperaría minutos al timeout de TCP.
+pub const SESSION_IDLE_TIMEOUT: Duration = Duration::from_secs(6);
 
 pub struct Message {
     pub msg_type: u8,
@@ -23,6 +36,8 @@ struct Writer {
     stream: Box<dyn Stream>,
     seq: u32,
     epoch: Instant,
+    /// Cifrado de salida, activo tras AUTH.
+    cipher: Option<Cipher>,
 }
 
 /// Manejador clonable para enviar mensajes desde cualquier hilo.
@@ -40,8 +55,16 @@ impl Sender {
             payload_len: payload.len() as u32,
         };
         w.seq = w.seq.wrapping_add(1);
-        w.stream.write_all(&header.encode())?;
-        w.stream.write_all(payload)?;
+        if let Some(c) = w.cipher.as_mut() {
+            let (h, ct) = c
+                .seal(header, payload)
+                .map_err(|e| io::Error::other(e.to_string()))?;
+            w.stream.write_all(&h)?;
+            w.stream.write_all(&ct)?;
+        } else {
+            w.stream.write_all(&header.encode())?;
+            w.stream.write_all(payload)?;
+        }
         w.stream.flush()
     }
 
@@ -61,6 +84,14 @@ pub struct Client {
     reader: Box<dyn Stream>,
     tx: Sender,
     epoch: Instant,
+    /// JSON de CAPS recibido en el handshake (vacío antes).
+    pub caps: String,
+    /// Cifrado de entrada, activo tras AUTH.
+    rx_cipher: Option<Cipher>,
+    /// Tamaño máximo de payload: bajo hasta terminar el handshake.
+    max_payload: u32,
+    /// `true` si la sesión va cifrada y autenticada.
+    secure: bool,
 }
 
 impl Client {
@@ -81,17 +112,33 @@ impl Client {
             stream: stream.try_clone_boxed()?,
             seq: 0,
             epoch,
+            cipher: None,
         };
         Ok(Self {
             reader: stream,
             tx: Sender(Arc::new(Mutex::new(writer))),
             epoch,
+            caps: String::new(),
+            rx_cipher: None,
+            max_payload: MAX_UNAUTH_PAYLOAD,
+            secure: false,
         })
     }
 
     /// Microsegundos desde el arranque del cliente; son el `timestamp_us` de los PING.
     pub fn now_us(&self) -> u64 {
         self.epoch.elapsed().as_micros() as u64
+    }
+
+    /// `true` si la conexión va cifrada (móvil con emparejamiento).
+    pub fn is_secure(&self) -> bool {
+        self.secure
+    }
+
+    fn enable_encryption(&mut self, tx: Cipher, rx: Cipher) {
+        self.tx.0.lock().unwrap_or_else(|e| e.into_inner()).cipher = Some(tx);
+        self.rx_cipher = Some(rx);
+        self.secure = true;
     }
 
     pub fn sender(&self) -> Sender {
@@ -120,7 +167,7 @@ impl Client {
     /// Ante una versión no soportada envía ERROR `unsupported_version` y cierra la conexión.
     pub fn recv(&mut self) -> io::Result<Message> {
         let mut raw = [0u8; HEADER_LEN];
-        self.reader.read_exact(&mut raw)?;
+        self.reader.read_exact(&mut raw).map_err(idle_error)?;
         let header = match Header::decode(&raw) {
             Ok(h) => h,
             Err(e) => {
@@ -134,14 +181,39 @@ impl Client {
                 return Err(io::Error::new(io::ErrorKind::InvalidData, e.to_string()));
             }
         };
+        if header.payload_len > self.max_payload {
+            return Err(io::Error::new(
+                io::ErrorKind::InvalidData,
+                format!(
+                    "payload de {} bytes antes del handshake",
+                    header.payload_len
+                ),
+            ));
+        }
         let mut payload = vec![0u8; header.payload_len as usize];
-        self.reader.read_exact(&mut payload)?;
+        self.reader.read_exact(&mut payload).map_err(idle_error)?;
+        if let Some(c) = self.rx_cipher.as_mut() {
+            payload = c
+                .open(&raw, &payload)
+                .map_err(|e| io::Error::new(io::ErrorKind::InvalidData, e.to_string()))?;
+        }
         Ok(Message {
             msg_type: header.msg_type,
             flags: header.flags,
             timestamp_us: header.timestamp_us,
             payload,
         })
+    }
+}
+
+/// Un plazo de lectura vencido llega como `WouldBlock` (Unix) o `TimedOut` (Windows) con un
+/// texto del sistema poco claro; se unifica en un `TimedOut` que explica qué pasa.
+fn idle_error(e: io::Error) -> io::Error {
+    match e.kind() {
+        io::ErrorKind::WouldBlock | io::ErrorKind::TimedOut => {
+            io::Error::new(io::ErrorKind::TimedOut, "el móvil dejó de responder")
+        }
+        _ => e,
     }
 }
 
@@ -177,12 +249,93 @@ impl Stream for UnixStream {
     }
 }
 
-/// Handshake completo: HELLO del escritorio, espera CAPS y envía CONFIG.
-/// Un móvil mudo no bloquea: cada lectura caduca a los `timeout`.
+/// Fallos de emparejamiento: reintentar no sirve, hace falta que el usuario actúe.
+/// Viajan dentro de un `io::Error` de tipo `PermissionDenied`; la UI puede hacer
+/// `err.get_ref().and_then(|e| e.downcast_ref::<PairingError>())`.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum PairingError {
+    /// El móvil pide el código que muestra en pantalla.
+    NeedCode,
+    /// El código no coincide con el del móvil.
+    BadCode,
+    /// El móvil recuerda este PC pero el PC perdió la clave (o al revés).
+    KeyMismatch,
+    /// El móvil no demostró conocer el código: posible suplantación.
+    PhoneNotAuthenticated,
+    /// El móvil exige emparejamiento y el mensaje no se entendió.
+    Rejected(String),
+}
+
+impl fmt::Display for PairingError {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            PairingError::NeedCode => write!(
+                f,
+                "el móvil pide emparejar: escribe el código de 6 dígitos que muestra (--code)"
+            ),
+            PairingError::BadCode => write!(f, "código de emparejamiento incorrecto"),
+            PairingError::KeyMismatch => write!(
+                f,
+                "el emparejamiento guardado no coincide; vuelve a emparejar con --code"
+            ),
+            PairingError::PhoneNotAuthenticated => write!(
+                f,
+                "el móvil no se autenticó; puede que otro equipo se esté haciendo pasar por él"
+            ),
+            PairingError::Rejected(m) => write!(f, "el móvil rechazó la conexión: {m}"),
+        }
+    }
+}
+
+impl std::error::Error for PairingError {}
+
+impl PairingError {
+    fn into_io(self) -> io::Error {
+        io::Error::new(io::ErrorKind::PermissionDenied, self)
+    }
+
+    /// Extrae el error de emparejamiento de un `io::Error`, si lo es.
+    pub fn from_io(e: &io::Error) -> Option<&PairingError> {
+        e.get_ref().and_then(|e| e.downcast_ref::<PairingError>())
+    }
+}
+
+/// Opciones de seguridad del handshake.
+pub struct Pairing<'a> {
+    pub store: &'a mut PairingStore,
+    /// Código tecleado por el usuario; obliga a emparejar de nuevo aunque haya clave.
+    pub code: Option<&'a str>,
+}
+
+/// Handshake con un almacén de emparejamientos en memoria y sin código: solo vale para
+/// móviles antiguos sin cifrado. La aplicación usa `handshake_with`.
+#[cfg_attr(not(test), allow(dead_code))]
 pub fn handshake(client: &mut Client, config_json: &str, timeout: Duration) -> io::Result<String> {
+    let mut store = PairingStore::in_memory();
+    handshake_with(
+        client,
+        config_json,
+        timeout,
+        Pairing {
+            store: &mut store,
+            code: None,
+        },
+    )
+}
+
+/// Handshake completo: HELLO del escritorio, AUTH si el móvil lo pide, espera CAPS y
+/// envía CONFIG. Un móvil mudo no bloquea: cada lectura caduca a los `timeout`.
+pub fn handshake_with(
+    client: &mut Client,
+    config_json: &str,
+    timeout: Duration,
+    pairing: Pairing,
+) -> io::Result<String> {
     client.reader.set_read_timeout(Some(timeout))?;
-    let result = handshake_inner(client, config_json);
-    let _ = client.reader.set_read_timeout(None);
+    let result = handshake_inner(client, config_json, pairing);
+    // Durante la sesión el plazo sigue activo, más holgado: detecta un móvil que desaparece.
+    let _ = client.reader.set_read_timeout(Some(SESSION_IDLE_TIMEOUT));
+    client.max_payload = MAX_PAYLOAD;
     result.map_err(|e| match e.kind() {
         io::ErrorKind::WouldBlock | io::ErrorKind::TimedOut => {
             io::Error::new(io::ErrorKind::TimedOut, "timeout en el handshake")
@@ -191,31 +344,136 @@ pub fn handshake(client: &mut Client, config_json: &str, timeout: Duration) -> i
     })
 }
 
-fn handshake_inner(client: &mut Client, config_json: &str) -> io::Result<String> {
-    client.send(
-        MsgType::Hello,
-        0,
-        br#"{"proto":1,"platform":"desktop","name":"OpenCam"}"#,
-    )?;
-    let mut caps = None;
-    // El móvil responde HELLO y CAPS; se ignoran el resto de tipos mientras tanto.
-    for _ in 0..4 {
-        let msg = client.recv()?;
-        if msg.msg_type == MsgType::Caps.code() {
-            caps = Some(String::from_utf8_lossy(&msg.payload).into_owned());
-            break;
+/// Busca `"clave":valor` en un JSON plano y devuelve el valor sin comillas.
+/// Basta para los campos simples del HELLO (números y cadenas hex sin escapes).
+pub fn json_field<'a>(json: &'a str, key: &str) -> Option<&'a str> {
+    let pat = format!("\"{key}\"");
+    let mut rest = &json[json.find(&pat)? + pat.len()..];
+    rest = rest.trim_start().strip_prefix(':')?.trim_start();
+    if let Some(r) = rest.strip_prefix('"') {
+        r.find('"').map(|end| &r[..end])
+    } else {
+        let end = rest
+            .find(|c: char| c == ',' || c == '}' || c.is_whitespace())
+            .unwrap_or(rest.len());
+        Some(&rest[..end])
+    }
+}
+
+fn phone_error(payload: &[u8]) -> io::Error {
+    let body = String::from_utf8_lossy(payload);
+    match json_field(&body, "code") {
+        Some("bad_code") => PairingError::BadCode.into_io(),
+        Some("bad_key") => PairingError::KeyMismatch.into_io(),
+        // `too_many_attempts`: el móvil bloquea el código un rato tras varios fallos seguidos.
+        Some("pairing_required" | "too_many_attempts") => {
+            PairingError::Rejected(json_field(&body, "message").unwrap_or("").into()).into_io()
         }
-        if msg.msg_type == MsgType::Error.code() {
-            let body = String::from_utf8_lossy(&msg.payload);
-            return Err(io::Error::other(format!(
-                "el móvil respondió ERROR: {body}"
-            )));
+        _ => io::Error::other(format!("el móvil respondió ERROR: {body}")),
+    }
+}
+
+fn bad_data(msg: &str) -> io::Error {
+    io::Error::new(io::ErrorKind::InvalidData, msg.to_string())
+}
+
+fn handshake_inner(client: &mut Client, config_json: &str, p: Pairing) -> io::Result<String> {
+    let keys = KeyPair::generate().map_err(|e| io::Error::other(e.to_string()))?;
+    let code = p
+        .code
+        .map(code_psk)
+        .transpose()
+        .map_err(|e| io::Error::new(io::ErrorKind::InvalidInput, e.to_string()))?;
+    let hello = format!(
+        r#"{{"proto":1,"platform":"desktop","name":"OpenCam","secure":1,"client_id":"{}","pub":"{}","auth":"{}"}}"#,
+        p.store.client_id(),
+        to_hex(&keys.public_bytes()),
+        if code.is_some() { "code" } else { "key" },
+    );
+    client.send(MsgType::Hello, 0, hello.as_bytes())?;
+
+    let mut caps = None;
+    // El móvil responde HELLO (+ AUTH si es seguro) y CAPS; el resto se ignora mientras tanto.
+    for _ in 0..6 {
+        let msg = client.recv()?;
+        match MsgType::from_code(msg.msg_type) {
+            Some(MsgType::Caps) => {
+                caps = Some(String::from_utf8_lossy(&msg.payload).into_owned());
+                break;
+            }
+            Some(MsgType::Error) => return Err(phone_error(&msg.payload)),
+            Some(MsgType::Hello) if !client.secure => {
+                let phone_hello = String::from_utf8_lossy(&msg.payload).into_owned();
+                if json_field(&phone_hello, "secure") == Some("1") {
+                    authenticate(client, &keys, hello.as_bytes(), &phone_hello, code, p.store)?;
+                } else {
+                    eprintln!(
+                        "Aviso: este móvil no cifra la conexión; actualiza la app de OpenCam."
+                    );
+                }
+            }
+            _ => {}
         }
     }
-    let caps =
-        caps.ok_or_else(|| io::Error::new(io::ErrorKind::InvalidData, "el móvil no envió CAPS"))?;
+    let caps = caps.ok_or_else(|| bad_data("el móvil no envió CAPS"))?;
     client.send(MsgType::Config, 0, config_json.as_bytes())?;
     Ok(caps)
+}
+
+/// Acuerdo de claves y confirmación mutua con AUTH; deja el cliente cifrando.
+fn authenticate(
+    client: &mut Client,
+    keys: &KeyPair,
+    desktop_hello: &[u8],
+    phone_hello: &str,
+    code: Option<[u8; 32]>,
+    store: &mut PairingStore,
+) -> io::Result<()> {
+    let phone_id = json_field(phone_hello, "phone_id")
+        .filter(|id| crate::pairing::is_id(id))
+        .ok_or_else(|| bad_data("HELLO del móvil sin phone_id"))?
+        .to_string();
+    let peer = json_field(phone_hello, "pub")
+        .and_then(from_hex)
+        .ok_or_else(|| bad_data("HELLO del móvil sin clave pública"))?;
+    let (psk, with_code) = match (json_field(phone_hello, "auth"), code) {
+        (Some("code"), Some(c)) => (c, true),
+        (Some("code"), None) => return Err(PairingError::NeedCode.into_io()),
+        (Some("key"), _) => match store.key_for(&phone_id) {
+            Some(k) => (k, false),
+            None => return Err(PairingError::KeyMismatch.into_io()),
+        },
+        _ => return Err(bad_data("modo de autenticación desconocido")),
+    };
+    let session = SessionKeys::derive(keys, &peer, &psk, desktop_hello, phone_hello.as_bytes())
+        .map_err(|e| bad_data(&e.to_string()))?;
+    client.send(MsgType::Auth, 0, &session.auth_tag(Role::Desktop))?;
+    let mut authenticated = false;
+    for _ in 0..4 {
+        let msg = client.recv()?;
+        match MsgType::from_code(msg.msg_type) {
+            Some(MsgType::Auth) => {
+                session
+                    .verify_auth(Role::Phone, &msg.payload)
+                    .map_err(|_| PairingError::PhoneNotAuthenticated.into_io())?;
+                authenticated = true;
+                break;
+            }
+            Some(MsgType::Error) => return Err(phone_error(&msg.payload)),
+            _ => {}
+        }
+    }
+    if !authenticated {
+        return Err(PairingError::PhoneNotAuthenticated.into_io());
+    }
+    let (tx, rx) = session.ciphers(Role::Desktop);
+    client.enable_encryption(tx, rx);
+    if with_code {
+        if let Err(e) = store.remember(&phone_id, session.pairing_key) {
+            eprintln!("Aviso: no se pudo guardar el emparejamiento: {e}");
+        }
+    }
+    Ok(())
 }
 
 /// RTT en microsegundos de un PONG: `ahora − timestamp_us` del PING original.
@@ -304,6 +562,27 @@ mod tests {
         phone.join().unwrap();
     }
 
+    /// Un móvil que deja de enviar sin cerrar (Wi-Fi caída) no bloquea `recv` para siempre.
+    #[test]
+    fn silent_phone_after_handshake_times_out() {
+        let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+        let addr = listener.local_addr().unwrap();
+        let phone = thread::spawn(move || {
+            let (s, _) = listener.accept().unwrap();
+            thread::sleep(Duration::from_millis(400));
+            drop(s);
+        });
+        let mut client = Client::connect(addr, Duration::from_secs(2)).unwrap();
+        client
+            .reader
+            .set_read_timeout(Some(Duration::from_millis(100)))
+            .unwrap();
+        let err = client.recv().err().expect("debía vencer el plazo");
+        assert_eq!(err.kind(), io::ErrorKind::TimedOut);
+        assert!(err.to_string().contains("dejó de responder"), "{err}");
+        phone.join().unwrap();
+    }
+
     #[test]
     fn unsupported_version_gets_error_and_close() {
         let listener = TcpListener::bind("127.0.0.1:0").unwrap();
@@ -337,5 +616,249 @@ mod tests {
         let err = handshake(&mut client, "{}", Duration::from_secs(2)).unwrap_err();
         assert_eq!(err.kind(), io::ErrorKind::InvalidData);
         phone.join().unwrap();
+    }
+
+    // --- Emparejamiento y cifrado contra un móvil falso que implementa el lado del teléfono ---
+
+    use opencam_core::secure::{Cipher as PhoneCipher, SessionKeys as Keys};
+
+    fn raw_read(s: &mut TcpStream) -> ([u8; HEADER_LEN], Vec<u8>) {
+        let mut raw = [0u8; HEADER_LEN];
+        s.read_exact(&mut raw).unwrap();
+        let mut p = vec![0u8; Header::decode(&raw).unwrap().payload_len as usize];
+        s.read_exact(&mut p).unwrap();
+        (raw, p)
+    }
+
+    fn raw_write(s: &mut TcpStream, t: MsgType, p: &[u8], c: Option<&mut PhoneCipher>) {
+        let h = Header {
+            msg_type: t.code(),
+            flags: 0,
+            seq: 0,
+            timestamp_us: 5,
+            payload_len: p.len() as u32,
+        };
+        match c {
+            Some(c) => {
+                let (h, ct) = c.seal(h, p).unwrap();
+                s.write_all(&h).unwrap();
+                s.write_all(&ct).unwrap();
+            }
+            None => {
+                s.write_all(&h.encode()).unwrap();
+                s.write_all(p).unwrap();
+            }
+        }
+    }
+
+    /// Qué hace el móvil falso con el AUTH del escritorio.
+    #[derive(Clone, Copy)]
+    enum Phone {
+        /// Comprueba el código/clave y responde como un móvil real.
+        Honest,
+        /// Responde con un AUTH inválido (no conoce el código).
+        Impostor,
+    }
+
+    /// Un móvil con código `code` y, si `known_key`, clave guardada para este escritorio.
+    /// Devuelve la clave de emparejamiento acordada (si la hubo).
+    fn fake_secure_phone(
+        listener: TcpListener,
+        code: &'static str,
+        known_key: Option<[u8; 32]>,
+        mode: Phone,
+    ) -> thread::JoinHandle<Option<[u8; 32]>> {
+        thread::spawn(move || {
+            let (mut s, _) = listener.accept().unwrap();
+            let (_, hello) = raw_read(&mut s);
+            let hello_s = String::from_utf8(hello.clone()).unwrap();
+            assert_eq!(json_field(&hello_s, "secure"), Some("1"));
+            let wants_key = json_field(&hello_s, "auth") == Some("key");
+            let use_key = wants_key && known_key.is_some();
+            let kp = KeyPair::generate().unwrap();
+            let phone_hello = format!(
+                r#"{{"proto":1,"platform":"android","secure":1,"phone_id":"a1b2c3d4","pub":"{}","auth":"{}"}}"#,
+                to_hex(&kp.public_bytes()),
+                if use_key { "key" } else { "code" }
+            );
+            raw_write(&mut s, MsgType::Hello, phone_hello.as_bytes(), None);
+            let psk = if use_key {
+                known_key.unwrap()
+            } else {
+                code_psk(code).unwrap()
+            };
+            let peer = from_hex(json_field(&hello_s, "pub").unwrap()).unwrap();
+            let keys = Keys::derive(&kp, &peer, &psk, &hello, phone_hello.as_bytes()).unwrap();
+            let (t, tag) = raw_read(&mut s);
+            assert_eq!(t[5], MsgType::Auth.code());
+            if keys.verify_auth(Role::Desktop, &tag).is_err() {
+                let code = if use_key { "bad_key" } else { "bad_code" };
+                let body = format!(r#"{{"code":"{code}","message":"no"}}"#);
+                raw_write(&mut s, MsgType::Error, body.as_bytes(), None);
+                return None;
+            }
+            match mode {
+                Phone::Impostor => {
+                    raw_write(&mut s, MsgType::Auth, &[0u8; 32], None);
+                    return None;
+                }
+                Phone::Honest => {
+                    raw_write(&mut s, MsgType::Auth, &keys.auth_tag(Role::Phone), None)
+                }
+            }
+            let (mut tx, mut rx) = keys.ciphers(Role::Phone);
+            raw_write(
+                &mut s,
+                MsgType::Caps,
+                br#"{"platform":"android"}"#,
+                Some(&mut tx),
+            );
+            let (h, ct) = raw_read(&mut s);
+            assert_eq!(h[5], MsgType::Config.code());
+            let cfg = rx.open(&h, &ct).unwrap();
+            assert_eq!(cfg, br#"{"codec":"h264"}"#);
+            // En el cable la CONFIG no va en claro.
+            assert!(!ct.windows(5).any(|w| w == b"codec"));
+            let (h, ct) = raw_read(&mut s);
+            assert_eq!(h[5], MsgType::Ping.code());
+            rx.open(&h, &ct).unwrap();
+            raw_write(
+                &mut s,
+                MsgType::Video,
+                b"\x00\x00\x00\x01frame",
+                Some(&mut tx),
+            );
+            Some(keys.pairing_key)
+        })
+    }
+
+    fn connect_with(
+        addr: std::net::SocketAddr,
+        store: &mut PairingStore,
+        code: Option<&str>,
+    ) -> io::Result<(Client, String)> {
+        let mut c = Client::connect(addr, Duration::from_secs(2))?;
+        let caps = handshake_with(
+            &mut c,
+            r#"{"codec":"h264"}"#,
+            Duration::from_secs(2),
+            Pairing { store, code },
+        )?;
+        Ok((c, caps))
+    }
+
+    #[test]
+    fn pairs_with_code_then_reconnects_with_saved_key() {
+        let mut store = PairingStore::in_memory();
+
+        let l = TcpListener::bind("127.0.0.1:0").unwrap();
+        let addr = l.local_addr().unwrap();
+        let phone = fake_secure_phone(l, "123456", None, Phone::Honest);
+        let (mut c, caps) = connect_with(addr, &mut store, Some("123-456")).unwrap();
+        assert!(c.is_secure());
+        assert!(caps.contains("android"));
+        c.send(MsgType::Ping, 0, &[]).unwrap();
+        let v = c.recv().unwrap();
+        assert_eq!(v.msg_type, MsgType::Video.code());
+        assert_eq!(v.payload, b"\x00\x00\x00\x01frame");
+        let key = phone.join().unwrap().unwrap();
+        assert_eq!(store.key_for("a1b2c3d4"), Some(key));
+
+        // Segunda vez: sin código, con la clave guardada.
+        let l = TcpListener::bind("127.0.0.1:0").unwrap();
+        let addr = l.local_addr().unwrap();
+        let phone = fake_secure_phone(l, "999999", Some(key), Phone::Honest);
+        let (mut c, _) = connect_with(addr, &mut store, None).unwrap();
+        assert!(c.is_secure());
+        c.send(MsgType::Ping, 0, &[]).unwrap();
+        assert_eq!(c.recv().unwrap().msg_type, MsgType::Video.code());
+        phone.join().unwrap().unwrap();
+    }
+
+    fn pairing_err(r: io::Result<(Client, String)>) -> PairingError {
+        let e = r.err().expect("el handshake debía fallar");
+        assert_eq!(e.kind(), io::ErrorKind::PermissionDenied);
+        PairingError::from_io(&e).cloned().unwrap()
+    }
+
+    #[test]
+    fn asks_for_code_and_reports_wrong_code() {
+        let mut store = PairingStore::in_memory();
+        let l = TcpListener::bind("127.0.0.1:0").unwrap();
+        let addr = l.local_addr().unwrap();
+        let phone = thread::spawn(move || {
+            // Solo responde HELLO: el escritorio corta antes de AUTH por falta de código.
+            let (mut s, _) = l.accept().unwrap();
+            raw_read(&mut s);
+            let kp = KeyPair::generate().unwrap();
+            let h = format!(
+                r#"{{"secure":1,"phone_id":"a1b2c3d4","pub":"{}","auth":"code"}}"#,
+                to_hex(&kp.public_bytes())
+            );
+            raw_write(&mut s, MsgType::Hello, h.as_bytes(), None);
+        });
+        assert_eq!(
+            pairing_err(connect_with(addr, &mut store, None)),
+            PairingError::NeedCode
+        );
+        phone.join().unwrap();
+
+        let l = TcpListener::bind("127.0.0.1:0").unwrap();
+        let addr = l.local_addr().unwrap();
+        let phone = fake_secure_phone(l, "123456", None, Phone::Honest);
+        assert_eq!(
+            pairing_err(connect_with(addr, &mut store, Some("000000"))),
+            PairingError::BadCode
+        );
+        assert!(phone.join().unwrap().is_none());
+        assert_eq!(store.key_for("a1b2c3d4"), None);
+    }
+
+    #[test]
+    fn rejects_phone_that_does_not_know_the_code() {
+        let mut store = PairingStore::in_memory();
+        let l = TcpListener::bind("127.0.0.1:0").unwrap();
+        let addr = l.local_addr().unwrap();
+        let phone = fake_secure_phone(l, "123456", None, Phone::Impostor);
+        assert_eq!(
+            pairing_err(connect_with(addr, &mut store, Some("123456"))),
+            PairingError::PhoneNotAuthenticated
+        );
+        phone.join().unwrap();
+        assert_eq!(store.key_for("a1b2c3d4"), None);
+    }
+
+    #[test]
+    fn oversized_payload_before_handshake_is_rejected() {
+        let l = TcpListener::bind("127.0.0.1:0").unwrap();
+        let addr = l.local_addr().unwrap();
+        let phone = thread::spawn(move || {
+            let (mut s, _) = l.accept().unwrap();
+            raw_read(&mut s);
+            let h = Header {
+                msg_type: MsgType::Hello.code(),
+                flags: 0,
+                seq: 0,
+                timestamp_us: 0,
+                payload_len: MAX_UNAUTH_PAYLOAD + 1,
+            };
+            s.write_all(&h.encode()).unwrap();
+            thread::sleep(Duration::from_millis(200));
+        });
+        let mut c = Client::connect(addr, Duration::from_secs(2)).unwrap();
+        let e = handshake(&mut c, "{}", Duration::from_secs(2)).unwrap_err();
+        assert_eq!(e.kind(), io::ErrorKind::InvalidData);
+        phone.join().unwrap();
+    }
+
+    #[test]
+    fn json_field_extracts_simple_values() {
+        let j = r#"{"secure": 1,"pub":"0a0b", "auth" : "code","n":12}"#;
+        assert_eq!(json_field(j, "secure"), Some("1"));
+        assert_eq!(json_field(j, "pub"), Some("0a0b"));
+        assert_eq!(json_field(j, "auth"), Some("code"));
+        assert_eq!(json_field(j, "n"), Some("12"));
+        assert_eq!(json_field(j, "nope"), None);
+        assert_eq!(json_field(r#"{"x":"#, "x"), Some(""));
     }
 }

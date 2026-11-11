@@ -26,7 +26,7 @@ flowchart LR
 
 ## Decisiones
 
-- **Escritorio: CLI en Rust.** El cliente de escritorio es un programa de línea de órdenes que decodifica H.264 con OpenH264 (crate `openh264`). Tauri (interfaz gráfica) y FFmpeg/libav quedan como trabajo futuro.
+- **Escritorio: Rust con ventana egui.** El cliente decodifica H.264 con OpenH264 (crate `openh264`). Sin argumentos abre una ventana (eframe/egui, OpenGL) y con argumentos funciona como CLI; las dos usan el mismo bucle de sesión (`session.rs`), que avisa a un `Observer`. FFmpeg/libav queda como trabajo futuro.
 - **Protocolo en tres sitios.** `core/` (Rust) implementa OPCM para el escritorio y sirve de referencia de pruebas. Las apps móviles lo reimplementan en Kotlin y Swift. `docs/PROTOCOL.md` es la fuente común de los tres.
 - **Codificación en el móvil.** Solo el móvil accede al sensor y a los codificadores. El escritorio recibe H.264 ya comprimido.
 - **TCP como transporte único.** USB (ADB o usbmuxd) y Wi-Fi exponen TCP, así que el mismo protocolo sirve para todo. Bluetooth Classic solo tiene 2-3 Mbps útiles y se reserva para la Fase 4.
@@ -37,7 +37,7 @@ flowchart LR
 
 | Móvil / Transporte | USB | Wi-Fi | Bluetooth |
 |---|---|---|---|
-| Android | `adb forward` (sin root) | Sí | RFCOMM, 480p-720p, 15-24 fps (Fase 4, pendiente) |
+| Android | `adb forward` automático desde el escritorio (`adb.rs`, sin root) | Sí | RFCOMM, 480p-720p, 15-24 fps (Fase 4, pendiente) |
 | iPhone | usbmuxd (sin jailbreak) | Sí (Bonjour) | Solo BLE para control; sin vídeo (pendiente) |
 
 ## Límites a documentar
@@ -78,7 +78,7 @@ Leyenda:
 | Protocolo OPCM v1 | Hecho | `core/`: 29 tests pasan. Cabecera, tipos de mensaje, HELLO/CAPS, CONFIG, STATS, PING/PONG. |
 | STATS y control de bitrate | Hecho | `core/`: métricas EWMA y controlador AIMD con tests. Escritorio: mide RTT, descartes y fps, y envía STATS cada segundo con `target_bitrate_kbps`; test end-to-end con móvil falso. Móviles: aplican STATS (Android `setBitrate`, iOS `AverageBitRate`). Sin verificar en dispositivos reales. |
 | Reconexión | Hecho (escritorio) | `desktop/src/session.rs` reconecta con backoff y repite el handshake; test automático. Sin probar con un móvil real. `core/src/reconnect.rs` existe pero el cliente aún usa su backoff local. |
-| Descubrimiento mDNS / NSD / Bonjour | Hecho (escritorio) | Android anuncia con NSD y iOS con Bonjour (`_opencam._tcp`). Escritorio: `discovery.rs` con `--list` y `--discover`. Sin probar con teléfonos reales. |
+| Descubrimiento mDNS / NSD / Bonjour | Hecho (escritorio) | Android anuncia con NSD y iOS con Bonjour (`_opencam._tcp`). Escritorio: `discovery.rs`; el modo `auto` (por defecto) lo usa si no hay USB. Sin probar con teléfonos reales. |
 | CAPS reales en Android | No verificado | `Caps.kt` (rangos de fps, lente) con tests JVM. Sin móvil. |
 | Cola de envío y robustez Android | No verificado | `StreamService.kt` y `OpcmServer.kt`; tests JVM en `OpcmTest.kt`. |
 | Proyecto XcodeGen iOS | No verificado | `ios/project.yml`. Sin Xcode: no se ha generado ni compilado. |
@@ -91,7 +91,8 @@ Leyenda:
 | H.265 y 4K en escritorio | Pendiente | Trabajo futuro. El escritorio solo decodifica H.264 con OpenH264. |
 | Audio y micrófono virtual | Pendiente | Fase 3. |
 | Bluetooth Android | Pendiente | Fase 4. |
-| Interfaz gráfica | Pendiente | Tauri queda como trabajo futuro; hoy es una CLI. |
+| Interfaz gráfica de escritorio | No verificado | `desktop/src/gui.rs` (egui/eframe): conexión (automática, Wi-Fi con búsqueda mDNS, USB Android/iPhone), resolución, fps, bitrate, salida, estado, estadísticas y vista previa. Misma app en Windows, Linux y macOS; sin argumentos abre la ventana y con argumentos es la CLI. Probada en Linux (Xvfb) con un móvil simulado. |
+| Pantalla del móvil | No verificado | Android (`MainActivity.kt`) e iOS (`OpenCamApp.swift`) muestran IP, puerto y nombre, y dejan elegir resolución, fps y calidad (y lente en Android). Son la base de CONFIG y se anuncian en CAPS como `current`. |
 
 ### Por fase
 
